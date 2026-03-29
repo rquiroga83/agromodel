@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:dev.socrata.com)",
+      "WebSearch",
+      "WebFetch(domain:www.datos.gov.co)",
+      "WebFetch(domain:data.datos.gov.co)"
+    ]
+  }
+}

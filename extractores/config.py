@@ -78,9 +78,15 @@ def crear_directorios():
 # ──────────────────────────────────────────────────────────────
 # HEADERS HTTP para APIs colombianas
 # ──────────────────────────────────────────────────────────────
+# App Token de datos.gov.co (Socrata) — sin token: throttling por IP compartido.
+# Con token: hasta 1.000 requests/hora sin throttling por request.
+# Crear en: https://www.datos.gov.co → perfil → Developer Settings → Create New App Token
+SODA_APP_TOKEN = os.environ.get('SODA_APP_TOKEN', 'v1VwafGrvw2k2T30YlxxOdRsM')  # poner el token aquí o en variable de entorno
+
 HEADERS_GOV = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Accept': 'application/json, */*',
+    **({'X-App-Token': SODA_APP_TOKEN} if SODA_APP_TOKEN else {}),
 }
 
 HEADERS_IGAC = {
@@ -100,8 +106,8 @@ SODA_DATASETS = {
     'normales':       'nsz2-kzcq',   # Normales Climatológicas 1961-2020
     'eva_historica':  '2pnw-mmge',   # EVA MADR 2007-2018
     'eva_upra':       'uejq-wxrr',   # EVA UPRA 2019-2024
-    'calendario_22':  '4229-puwp',   # Calendario Siembras/Cosechas 2022
-    'calendario_23':  '526r-sixz',   # Calendario Siembras/Cosechas 2023
+    'calendario_nacional': '526r-sixz',  # Calendario Nacional Siembras/Cosechas 2023-2024
+    'calendario_depto':    '6nv9-uruw',  # Calendario Departamental Siembras/Cosechas 2023-2024
 }
 
 # ──────────────────────────────────────────────────────────────

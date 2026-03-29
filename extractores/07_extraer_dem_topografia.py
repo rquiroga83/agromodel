@@ -99,6 +99,9 @@ def calcular_curvatura(dem, res_x, res_y):
 def calcular_twi(dem_path):
     print("  Calculando TWI (acumulación de flujo D8)...")
     try:
+        # np.in1d fue eliminado en NumPy 2.0; pysheds aún lo usa → monkey-patch
+        if not hasattr(np, 'in1d'):
+            np.in1d = np.isin
         from pysheds.grid import Grid
         grid = Grid.from_raster(dem_path)
         dem_g = grid.read_raster(dem_path)

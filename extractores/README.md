@@ -29,15 +29,38 @@ pip install earthengine-api
 
 ```bash
 # Ejecutar TODOS los extractores (puede tardar varias horas)
-python run_all.py
+uv run run_all.py
 
-# Ejecutar un extractor específico
-python run_all.py 1         # Solo clima IDEAM
-python run_all.py 5 6       # Solo Sentinel-2 y Sentinel-1
-python run_all.py 8         # Solo targets (EVA, Monitoreo, SIPRA)
+# Ejecutar un extractor específico por número
+uv run run_all.py 01        # Solo clima IDEAM (los 4 pasos)
+uv run run_all.py 05 06     # Solo Sentinel-2 y Sentinel-1
+uv run run_all.py 08        # Solo targets (EVA, Monitoreo, SIPRA)
 
-# O ejecutar directamente
-python 01_extraer_clima_ideam.py
+# Script 01 — Clima IDEAM: ejecutar cada variable de forma independiente
+uv run run_all.py 01:temp       # Solo Temperatura
+uv run run_all.py 01:precip     # Solo Precipitación (todos los años, por mes)
+uv run run_all.py 01:humedad    # Solo Humedad del Aire
+uv run run_all.py 01:normales   # Solo Normales Climatológicas 1961-2020
+
+# Script 01 — Precipitación: reanudar desde un año o mes específico
+uv run run_all.py 01:precip:2021        # Solo precipitación 2021
+uv run run_all.py 01:precip:2021:6      # Solo precipitación junio 2021
+
+# Script 03 — Suelo IGAC: ejecutar cada capa de forma independiente
+uv run run_all.py 03:quimica    # Solo Propiedades Químicas
+uv run run_all.py 03:vocacion   # Solo Vocación de Uso
+
+# Script 08 — Target: ejecutar cada dataset de forma independiente
+uv run run_all.py 08:eva        # Solo EVA (Evaluaciones Agropecuarias)
+uv run run_all.py 08:monitoreo  # Solo Monitoreo Satelital UPRA
+uv run run_all.py 08:sipra      # Solo Zonificación de Aptitud SIPRA
+
+# O ejecutar directamente con argumentos
+uv run 01_extraer_clima_ideam.py --step precip
+uv run 01_extraer_clima_ideam.py --step precip --year 2021
+uv run 01_extraer_clima_ideam.py --step precip --year 2021 --mes 6
+uv run 03_extraer_suelo_igac.py --step quimica
+uv run 03_extraer_suelo_igac.py --step vocacion
 ```
 
 ### Parámetros Clave (config.py)
@@ -56,7 +79,7 @@ python 01_extraer_clima_ideam.py
 raw/
 ├── clima/
 │   ├── ideam_temperatura/     → CSV (~2-5M registros)
-│   ├── ideam_precipitacion/   → CSV por año (~5-10M registros/año)
+│   ├── ideam_precipitacion/   → CSV por mes (72 archivos, ~500K-1M registros/mes)
 │   ├── ideam_humedad/         → CSV (~2-5M registros)
 │   ├── ideam_normales/        → CSV (~50K registros, línea base 1961-2020)
 │   └── chirps/                → 72 GeoTIFF mensuales (12 meses × 6 años)
@@ -91,7 +114,8 @@ raw/
 ### Notas Importantes
 
 - **Idempotencia:** Cada script verifica si los archivos ya existen antes de descargar.
-  Se puede interrumpir y reanudar sin problemas.
+  Se puede interrumpir y reanudar sin problemas. La precipitación se descarga por mes
+  (`precipitacion_cund_YYYY_MM.csv`) para granularidad fina de reanudación.
 - **IGAC WAF:** El firewall del IGAC bloquea `where=1=1`. Se usa `OBJECTID>0`.
 - **CDSE cuota:** La cuenta gratuita tiene límites de requests. Si se exceden,
   esperar y reintentar.

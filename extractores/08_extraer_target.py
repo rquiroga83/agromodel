@@ -9,9 +9,16 @@ Descarga los tres datasets de etiquetado (target) para entrenamiento:
 Fuentes: datos.gov.co (SODA API) y geoservicios.upra.gov.co (ArcGIS REST)
 Salida: CSV para EVA, GeoJSON para monitoreo y SIPRA
 
+Uso:
+    python 08_extraer_target.py                   # Descarga los 3 datasets
+    python 08_extraer_target.py --step eva         # Solo EVA
+    python 08_extraer_target.py --step monitoreo   # Solo Monitoreo UPRA
+    python 08_extraer_target.py --step sipra       # Solo Aptitud SIPRA
+
 pip install requests pandas geopandas
 """
 
+import argparse
 import requests
 import pandas as pd
 import json
@@ -43,21 +50,21 @@ def descargar_eva():
         },
         {
             'id': SODA_DATASETS['eva_upra'],
-            'where': f"codigo_dane_departamento='{DEPT_DANE}'",
+            'where': f"c_digo_dane_departamento='{DEPT_DANE}'",
             'file': 'eva_upra_2019_2024_cundinamarca.csv',
             'label': 'EVA UPRA (2019-2024)',
         },
         {
-            'id': SODA_DATASETS['calendario_22'],
+            'id': SODA_DATASETS['calendario_nacional'],
             'where': '1=1',
-            'file': 'calendario_siembras_cosechas_2022.csv',
-            'label': 'Calendario Siembras/Cosechas 2022',
+            'file': 'calendario_nacional_siembras_cosechas_2023_2024.csv',
+            'label': 'Calendario Nacional Siembras/Cosechas 2023-2024',
         },
         {
-            'id': SODA_DATASETS['calendario_23'],
+            'id': SODA_DATASETS['calendario_depto'],
             'where': '1=1',
-            'file': 'calendario_siembras_cosechas_2023.csv',
-            'label': 'Calendario Siembras/Cosechas 2023',
+            'file': 'calendario_depto_siembras_cosechas_2023_2024.csv',
+            'label': 'Calendario Departamental Siembras/Cosechas 2023-2024',
         },
     ]
 
@@ -81,10 +88,16 @@ def descargar_eva():
             }
             try:
                 r = requests.get(url, params=params, headers=HEADERS_GOV, timeout=120)
+                if r.status_code == 404:
+                    print(f"  Dataset no encontrado (404). El ID puede haber sido eliminado.")
+                    break
                 r.raise_for_status()
                 data = r.json()
+            except requests.exceptions.HTTPError as e:
+                print(f"  Error HTTP: {e}. Saltando dataset.")
+                break
             except Exception as e:
-                print(f"  Error: {e}. Reintentando...")
+                print(f"  Error: {e}. Reintentando en 15s...")
                 time.sleep(15)
                 continue
 
@@ -196,26 +209,53 @@ def descargar_sipra():
 # MAIN
 # ═══════════════════════════════════════════════════════════════
 def main():
+    parser = argparse.ArgumentParser(
+        description='Descarga datasets de etiquetado (target) del proyecto.'
+    )
+    parser.add_argument(
+        '--step',
+        choices=['eva', 'monitoreo', 'sipra'],
+        default=None,
+        help='Dataset a descargar. Sin --step descarga los 3.'
+    )
+    args = parser.parse_args()
+
     crear_directorios()
 
     print("="*70)
     print("DESCARGA DE DATOS DE ETIQUETADO (TARGET)")
     print("="*70)
 
-    print("\n" + "─"*50)
-    print("1. EVA — Evaluaciones Agropecuarias Municipales")
-    print("─"*50)
-    descargar_eva()
+    if args.step == 'eva':
+        print("\n" + "─"*50)
+        print("1. EVA — Evaluaciones Agropecuarias Municipales")
+        print("─"*50)
+        descargar_eva()
+    elif args.step == 'monitoreo':
+        print("\n" + "─"*50)
+        print("2. MONITOREO SATELITAL DE CULTIVOS (UPRA)")
+        print("─"*50)
+        descargar_monitoreo()
+    elif args.step == 'sipra':
+        print("\n" + "─"*50)
+        print("3. ZONIFICACIÓN DE APTITUD (SIPRA)")
+        print("─"*50)
+        descargar_sipra()
+    else:
+        print("\n" + "─"*50)
+        print("1. EVA — Evaluaciones Agropecuarias Municipales")
+        print("─"*50)
+        descargar_eva()
 
-    print("\n" + "─"*50)
-    print("2. MONITOREO SATELITAL DE CULTIVOS (UPRA)")
-    print("─"*50)
-    descargar_monitoreo()
+        print("\n" + "─"*50)
+        print("2. MONITOREO SATELITAL DE CULTIVOS (UPRA)")
+        print("─"*50)
+        descargar_monitoreo()
 
-    print("\n" + "─"*50)
-    print("3. ZONIFICACIÓN DE APTITUD (SIPRA)")
-    print("─"*50)
-    descargar_sipra()
+        print("\n" + "─"*50)
+        print("3. ZONIFICACIÓN DE APTITUD (SIPRA)")
+        print("─"*50)
+        descargar_sipra()
 
     print("\n" + "="*70)
     print("DESCARGA DE TARGETS COMPLETADA")

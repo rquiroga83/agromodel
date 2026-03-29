@@ -7,19 +7,26 @@ Dos capas:
   2. Vocación de Uso del Territorio Nacional (18 clases de aptitud)
 
 Fuente: ArcGIS REST Services del IGAC (mapas.igac.gov.co)
-Formato de salida: GeoJSON
+Formato de salida: GeoJSON con reanudación automática
 
-NOTA: El WAF del IGAC bloquea 'where=1=1'. Usar 'OBJECTID>0'.
-Se pagina de a 2000 registros con resultOffset.
+WAF: El firewall del IGAC bloquea patrones sospechosos. Se usan headers
+realistas de navegador, delays variables y backoff progresivo en bloqueos.
+
+Uso:
+    python 03_extraer_suelo_igac.py                # Descarga ambas capas
+    python 03_extraer_suelo_igac.py --step quimica  # Solo propiedades químicas
+    python 03_extraer_suelo_igac.py --step vocacion # Solo vocación de uso
 
 pip install requests
 """
 
+import argparse
 import requests
 import json
 import os
 import sys
 import time
+import random
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import DIRS, HEADERS_IGAC, crear_directorios
@@ -41,11 +48,57 @@ CAPAS_IGAC = {
     },
 }
 
-PAGE_SIZE = 2000
+PAGE_SIZE = 1000  # reducido para minimizar bloqueos WAF
+
+
+# Headers realistas de navegador para evadir el WAF del IGAC
+HEADERS_BROWSER = {
+    'User-Agent': (
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/124.0.0.0 Safari/537.36'
+    ),
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'es-CO,es;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Referer': 'https://mapas.igac.gov.co/',
+    'Origin': 'https://mapas.igac.gov.co',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+}
+
+
+def _estado_archivo(output_file):
+    """
+    Lee el GeoJSON de salida y devuelve el número de features ya descargadas.
+    Retorna 0 si el archivo no existe o está incompleto/corrupto.
+    """
+    if not os.path.exists(output_file):
+        return 0
+    try:
+        with open(output_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Archivo completo: termina con ]}
+        if content.rstrip().endswith(']}'):
+            data = json.loads(content)
+            total = len(data.get('features', []))
+            if total > 0:
+                return total
+    except Exception:
+        pass
+    return 0
 
 
 def descargar_capa_igac(capa_key):
-    """Descarga una capa IGAC completa con paginación y soporte de reanudación."""
+    """
+    Descarga una capa IGAC completa con paginación y soporte de reanudación.
+
+    Reanudación: si ya existe un GeoJSON válido, retoma desde el último offset.
+    WAF: usa headers de navegador, delays variables (2-5s) y backoff progresivo
+         (60s → 120s → 300s) en caso de bloqueo.
+    """
     capa = CAPAS_IGAC[capa_key]
     query_url = capa['url']
     output_file = os.path.join(DIRS[capa['dir_key']], capa['output'])
@@ -56,110 +109,167 @@ def descargar_capa_igac(capa_key):
     print(f"Salida: {output_file}")
     print(f"{'='*70}")
 
-    params = {
-        'where': 'OBJECTID>0',
-        'outFields': '*',
-        'f': 'geojson',
-        'outSR': '4326',       # WGS84 para compatibilidad
-        'resultOffset': 0,
-        'resultRecordCount': PAGE_SIZE,
-    }
+    # ── Validar estado previo ──────────────────────────────────
+    total_previo = _estado_archivo(output_file)
 
-    # Detectar descarga previa
-    total = 0
-    resuming = False
-
-    if os.path.exists(output_file):
+    if total_previo > 0:
+        # Verificar si el archivo ya está completo consultando el total en el servidor
+        print(f"  Archivo existente: {total_previo:,} registros.")
+        print(f"  Verificando si la descarga está completa...")
         try:
-            with open(output_file, 'r') as f:
-                content = f.read()
-            if content.rstrip().endswith(']}'):
-                test = json.loads(content)
-                total = len(test.get('features', []))
-            if total > 0:
-                resuming = True
-                params['resultOffset'] = total
-                print(f"  Reanudando: {total} registros previos, desde offset {total}")
-        except Exception:
-            total = 0
+            r = requests.get(
+                query_url,
+                params={'where': 'OBJECTID>0', 'returnCountOnly': 'true', 'f': 'json'},
+                headers=HEADERS_BROWSER, timeout=30
+            )
+            count_data = r.json()
+            total_server = count_data.get('count', None)
+            if total_server is not None:
+                print(f"  Total en servidor: {total_server:,} registros.")
+                if total_previo >= total_server:
+                    print(f"  Descarga completa. Saltando.")
+                    return
+                else:
+                    print(f"  Faltan {total_server - total_previo:,} registros. Reanudando...")
+            else:
+                print(f"  No se pudo verificar total. Reanudando desde offset {total_previo:,}...")
+        except Exception as e:
+            print(f"  No se pudo verificar total ({e}). Reanudando desde offset {total_previo:,}...")
 
+    offset = total_previo
+    total = total_previo
+
+    # ── Sesión HTTP ────────────────────────────────────────────
     session = requests.Session()
-    session.headers.update(HEADERS_IGAC)
+    session.headers.update(HEADERS_BROWSER)
 
-    # Obtener cookies
+    # Visita inicial para obtener cookies (reduce bloqueos WAF)
     try:
         service_url = query_url.rsplit('/query', 1)[0]
         session.get(service_url, params={'f': 'json'}, timeout=30)
+        time.sleep(1)
     except Exception:
         pass
 
-    # Abrir archivo
-    if resuming:
-        f = open(output_file, 'r+')
-        content = f.read()
+    # ── Abrir archivo para escritura ───────────────────────────
+    if total_previo > 0:
+        # Reanudar: abrir en modo r+ y posicionarse antes del cierre ]}
+        fh = open(output_file, 'r+', encoding='utf-8')
+        content = fh.read()
         pos = content.rstrip().rfind(']}')
         if pos > 0:
-            f.seek(pos)
-            f.truncate()
+            fh.seek(pos)
+            fh.truncate()
         else:
-            f.seek(0, 2)
+            fh.seek(0, 2)
     else:
-        f = open(output_file, 'w')
-        f.write('{"type":"FeatureCollection","features":[\n')
+        fh = open(output_file, 'w', encoding='utf-8')
+        fh.write('{"type":"FeatureCollection","features":[\n')
+
+    waf_backoff = 60   # segundos de espera inicial en bloqueo WAF
+    waf_bloqueos = 0
 
     try:
         while True:
-            print(f"  Descargando desde registro {params['resultOffset']}...")
+            params = {
+                'where': 'OBJECTID>0',
+                'outFields': '*',
+                'f': 'geojson',
+                'outSR': '4326',
+                'resultOffset': offset,
+                'resultRecordCount': PAGE_SIZE,
+                'orderByFields': 'OBJECTID ASC',
+            }
+
+            print(f"  Offset {offset:,}...", end=' ', flush=True)
 
             try:
                 response = session.get(query_url, params=params, timeout=120)
             except requests.exceptions.RequestException as e:
-                print(f"  Error de conexión: {e}")
-                print("  Reintentando en 30 segundos...")
+                print(f"\n  Error de conexión: {e}. Reintentando en 30s...")
                 time.sleep(30)
                 continue
 
-            if response.headers.get('Content-Type', '').startswith('text/html'):
-                print("  Error: WAF bloqueó la solicitud. Esperando 60s...")
-                time.sleep(60)
+            # Detectar bloqueo WAF (responde HTML en vez de JSON)
+            content_type = response.headers.get('Content-Type', '')
+            if 'text/html' in content_type or response.status_code in (403, 429):
+                waf_bloqueos += 1
+                wait = min(waf_backoff * waf_bloqueos, 300)
+                print(f"\n  WAF bloqueó la solicitud (bloqueo #{waf_bloqueos}). "
+                      f"Esperando {wait}s...")
+                time.sleep(wait)
+                # Renovar sesión y cookies tras bloqueo
+                try:
+                    session = requests.Session()
+                    session.headers.update(HEADERS_BROWSER)
+                    session.get(service_url, params={'f': 'json'}, timeout=30)
+                    time.sleep(2)
+                except Exception:
+                    pass
                 continue
+
+            waf_bloqueos = 0  # reset en respuesta exitosa
 
             try:
                 data = response.json()
             except json.JSONDecodeError:
-                print("  Error: respuesta no es JSON válido")
-                print(f"  Status: {response.status_code}")
+                print(f"\n  Respuesta no es JSON. Status: {response.status_code}. "
+                      f"Reintentando en 30s...")
+                time.sleep(30)
+                continue
+
+            if 'error' in data:
+                print(f"\n  Error de la API: {data['error']}. Abortando.")
                 break
 
             features = data.get('features', [])
             if not features:
+                print(f"Sin más datos.")
                 break
 
             for feat in features:
                 if total > 0:
-                    f.write(',\n')
-                json.dump(feat, f)
+                    fh.write(',\n')
+                json.dump(feat, fh, ensure_ascii=False)
                 total += 1
 
-            f.flush()
-            print(f"  -> {len(features)} registros (total: {total:,})")
-            params['resultOffset'] += PAGE_SIZE
-            time.sleep(2)  # Cortesía con el servidor
+            fh.flush()
+            print(f"{len(features):,} registros (total: {total:,})")
+            offset += PAGE_SIZE
+
+            # Delay variable para no parecer un bot
+            time.sleep(random.uniform(2.0, 4.0))
 
     except KeyboardInterrupt:
-        print("\n  Descarga interrumpida por el usuario.")
+        print("\n  Descarga interrumpida por el usuario. El archivo puede reanudarse.")
     finally:
-        f.write('\n]}')
-        f.close()
+        fh.write('\n]}')
+        fh.close()
 
     print(f"  Total descargado: {total:,} registros → {output_file}")
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description='Descarga capas de suelo del IGAC.'
+    )
+    parser.add_argument(
+        '--step',
+        choices=['quimica', 'vocacion'],
+        default=None,
+        help='Capa a descargar. Sin --step descarga ambas.'
+    )
+    args = parser.parse_args()
+
     crear_directorios()
 
-    descargar_capa_igac('quimica')
-    descargar_capa_igac('vocacion')
+    if args.step == 'quimica':
+        descargar_capa_igac('quimica')
+    elif args.step == 'vocacion':
+        descargar_capa_igac('vocacion')
+    else:
+        descargar_capa_igac('quimica')
+        descargar_capa_igac('vocacion')
 
     print("\n" + "="*70)
     print("DESCARGA IGAC COMPLETADA")

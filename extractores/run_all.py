@@ -5,9 +5,17 @@ Ejecuta todos los extractores en secuencia para descargar
 los datos crudos del proyecto ¿Qué Sembrar?
 
 Uso:
-    python run_all.py          # Ejecutar todos
-    python run_all.py 3        # Ejecutar solo el script 03 (IGAC)
-    python run_all.py 5 6      # Ejecutar scripts 05 y 06 (Sentinel-2 y 1)
+    python run_all.py                        # Ejecutar todos
+    python run_all.py 3                      # Ejecutar solo el script 03 (IGAC)
+    python run_all.py 5 6                    # Ejecutar scripts 05 y 06 (Sentinel-2 y 1)
+
+    # Script 01: pasos individuales del clima IDEAM
+    python run_all.py 01:temp                # Solo temperatura
+    python run_all.py 01:precip              # Solo precipitación (todos los años)
+    python run_all.py 01:precip:2021         # Precipitación año 2021
+    python run_all.py 01:precip:2021:6       # Precipitación junio 2021
+    python run_all.py 01:humedad             # Solo humedad
+    python run_all.py 01:normales            # Solo normales climatológicas
 
 Cada script es idempotente: si un archivo ya existe, lo salta.
 Se puede reanudar después de una interrupción.
@@ -38,32 +46,56 @@ def main():
     from config import crear_directorios
     crear_directorios()
 
-    # Filtrar scripts si se especifican números
+    # Parsear argumentos: soporta "01", "01:temp", "01:precip:2021", "01:precip:2021:6"
+    def parse_arg(arg):
+        """Retorna (numero, extra_args[]) dado un argumento como '01:precip:2021:6'."""
+        partes = arg.split(':')
+        return partes[0], partes[1:]
+
     if len(sys.argv) > 1:
-        filtro = set(sys.argv[1:])
-        scripts = [(n, s, d) for n, s, d in SCRIPTS if n in filtro]
+        args_parsed = [parse_arg(a) for a in sys.argv[1:]]
+        numeros = set(n for n, _ in args_parsed)
+        scripts_sel = [(n, s, d) for n, s, d in SCRIPTS if n in numeros]
+        # Mapa de extras por número
+        extras_map = {n: ex for n, ex in args_parsed}
     else:
-        scripts = SCRIPTS
+        scripts_sel = SCRIPTS
+        extras_map = {}
 
     print("="*70)
     print("EXTRACCIÓN DE DATOS — PROYECTO ¿QUÉ SEMBRAR?")
     print("Cundinamarca, Colombia | Ventana: 2019-2024")
     print("="*70)
-    print(f"\nScripts a ejecutar: {len(scripts)}")
-    for num, script, desc in scripts:
-        print(f"  [{num}] {desc}")
+    print(f"\nScripts a ejecutar: {len(scripts_sel)}")
+    for num, script, desc in scripts_sel:
+        extra = extras_map.get(num, [])
+        sufijo = f" (--step {' '.join(extra)})" if extra else ""
+        print(f"  [{num}] {desc}{sufijo}")
     print()
 
     resultados = []
-    for num, script, desc in scripts:
+    for num, script, desc in scripts_sel:
+        extra = extras_map.get(num, [])
+
         print(f"\n{'▓'*70}")
         print(f"  [{num}] {desc}")
         print(f"{'▓'*70}\n")
 
         script_path = os.path.join(base_dir, script)
+
+        # Construir argumentos extra para el script
+        extra_args = []
+        if extra:
+            step = extra[0]
+            extra_args += ['--step', step]
+            if len(extra) >= 2:
+                extra_args += ['--year', extra[1]]
+            if len(extra) >= 3:
+                extra_args += ['--mes', extra[2]]
+
         try:
             result = subprocess.run(
-                [sys.executable, script_path],
+                [sys.executable, script_path] + extra_args,
                 cwd=base_dir,
                 timeout=7200,  # 2 horas máximo por script
             )

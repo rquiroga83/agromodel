@@ -50,6 +50,9 @@ def descargar_soilgrids_wcs():
     """
     Descarga SoilGrids via WCS (Web Coverage Service).
     Recorta al bbox de Cundinamarca durante la descarga.
+
+    NOTA: WCS 2.0 usa SUBSET dos veces (Long y Lat). Como Python dict no permite
+    claves duplicadas, se pasan los parámetros como lista de tuplas.
     """
     crear_directorios()
     out_dir = DIRS['suelo_soilgrids']
@@ -68,43 +71,33 @@ def descargar_soilgrids_wcs():
             layer_name = f"{prop}_{depth}_mean"
             print(f"  Descargando {prop} @ {depth}...")
 
-            # WCS GetCoverage request
-            params = {
-                'map': f'/map/{prop}.map',
-                'SERVICE': 'WCS',
-                'VERSION': '2.0.1',
-                'REQUEST': 'GetCoverage',
-                'COVERAGEID': layer_name,
-                'FORMAT': 'image/tiff',
-                'SUBSET': f'X({BBOX_WGS84[0]},{BBOX_WGS84[2]})',
-                'SUBSETY': f'Y({BBOX_WGS84[1]},{BBOX_WGS84[3]})',
-                'SUBSETTINGCRS': 'http://www.opengis.net/def/crs/EPSG/0/4326',
-            }
-
             try:
+                # Lista de tuplas para permitir SUBSET duplicado (requerido por WCS 2.0)
+                params = [
+                    ('SERVICE', 'WCS'),
+                    ('VERSION', '2.0.1'),
+                    ('REQUEST', 'GetCoverage'),
+                    ('COVERAGEID', layer_name),
+                    ('FORMAT', 'image/tiff'),
+                    ('SUBSET', f'Long({BBOX_WGS84[0]},{BBOX_WGS84[2]})'),
+                    ('SUBSET', f'Lat({BBOX_WGS84[1]},{BBOX_WGS84[3]})'),
+                    ('SUBSETTINGCRS', 'http://www.opengis.net/def/crs/EPSG/0/4326'),
+                    ('OUTPUTCRS', 'http://www.opengis.net/def/crs/EPSG/0/4326'),
+                ]
                 url = f"{wcs_base}?map=/map/{prop}.map"
-                response = requests.get(url, params={
-                    'SERVICE': 'WCS',
-                    'VERSION': '2.0.1',
-                    'REQUEST': 'GetCoverage',
-                    'COVERAGEID': layer_name,
-                    'FORMAT': 'image/tiff',
-                    f'SUBSET': f'X({BBOX_WGS84[0]},{BBOX_WGS84[2]})',
-                    f'SUBSETY': f'Y({BBOX_WGS84[1]},{BBOX_WGS84[3]})',
-                }, timeout=300, stream=True)
+                response = requests.get(url, params=params, timeout=300, stream=True)
 
                 if response.status_code == 200 and 'tiff' in response.headers.get('Content-Type', ''):
                     with open(out_file, 'wb') as f:
                         for chunk in response.iter_content(chunk_size=8192):
                             f.write(chunk)
-                    print(f"  -> Guardado: {out_file}")
+                    print(f"  -> Guardado (WCS): {out_file}")
                 else:
                     print(f"  Error WCS: status={response.status_code}")
-                    # Fallback a descarga COG directa
                     descargar_cog_directo(prop, depth, out_file)
 
             except Exception as e:
-                print(f"  Error: {e}")
+                print(f"  Error WCS: {e}")
                 descargar_cog_directo(prop, depth, out_file)
 
             time.sleep(2)
@@ -114,24 +107,38 @@ def descargar_cog_directo(prop, depth, out_file):
     """
     Descarga COG (Cloud Optimized GeoTIFF) directamente desde files.isric.org.
     El archivo es global, se recorta localmente con rasterio.
+
+    IMPORTANTE: SoilGrids 2.0 usa proyección Homolosine (no WGS84).
+    El bbox debe transformarse a la CRS nativa del dataset antes de calcular
+    la ventana, de lo contrario se obtiene un recorte 0×0.
     """
     depth_label = DEPTH_MAP.get(depth, depth)
     cog_url = f"{SOILGRIDS_COG_BASE}/{prop}/{prop}_{depth_label}.vrt"
 
     print(f"  Intentando descarga COG: {cog_url}")
-    print(f"  NOTA: Los archivos COG son grandes. Puede tardar varios minutos.")
+    print(f"  NOTA: Los archivos COG son globales. Puede tardar varios minutos.")
 
     try:
         import rasterio
         from rasterio.windows import from_bounds
+        from rasterio.warp import transform_bounds
 
-        # Leer directamente del COG remoto (rasterio soporta /vsicurl/)
         with rasterio.open(f'/vsicurl/{cog_url}') as src:
-            window = from_bounds(
+            # SoilGrids 2.0 usa proyección Homolosine — transformar bbox a la CRS nativa
+            left, bottom, right, top = transform_bounds(
+                'EPSG:4326', src.crs,
                 BBOX_WGS84[0], BBOX_WGS84[1],
                 BBOX_WGS84[2], BBOX_WGS84[3],
-                src.transform
             )
+            window = from_bounds(left, bottom, right, top, src.transform)
+
+            if window.width <= 0 or window.height <= 0:
+                raise ValueError(
+                    f"Ventana vacía tras reproyección "
+                    f"({window.width:.1f}×{window.height:.1f}). "
+                    f"CRS dataset: {src.crs}"
+                )
+
             data = src.read(1, window=window)
             transform = src.window_transform(window)
 
