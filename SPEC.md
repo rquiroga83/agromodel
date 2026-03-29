@@ -26,21 +26,21 @@ Construir un sistema que reciba un polígono geográfico y devuelva un ranking d
 
 **Estado:** ✅ Implementado
 
-**Responsabilidad:** Descargar datos crudos de todas las fuentes y almacenarlos en `raw/` sin transformar.
+**Responsabilidad:** Descargar datos crudos de todas las fuentes y almacenarlos en `extractores/raw/` sin transformar.
 
 **Scripts:**
 
 | Script | Entrada | Salida | Dependencias |
 |--------|---------|--------|--------------|
 | `config.py` | — | Configuración global | — |
-| `01_extraer_clima_ideam.py` | API SODA datos.gov.co | CSV en `raw/clima/ideam_*/` | requests, pandas |
-| `02_extraer_chirps.py` | GEE o CHC UCSB | GeoTIFF en `raw/clima/chirps/` | earthengine-api o requests, rasterio |
-| `03_extraer_suelo_igac.py` | ArcGIS REST IGAC | GeoJSON en `raw/suelo/igac_*/` | requests |
-| `04_extraer_soilgrids.py` | WCS/COG ISRIC | GeoTIFF en `raw/suelo/soilgrids/` | requests, rasterio |
-| `05_extraer_sentinel2.py` | SentinelHub CDSE | GeoTIFF en `raw/satelite/sentinel2/` | sentinelhub, rasterio |
-| `06_extraer_sentinel1.py` | SentinelHub CDSE | GeoTIFF en `raw/satelite/sentinel1/` | sentinelhub, rasterio |
-| `07_extraer_dem_topografia.py` | SentinelHub CDSE | GeoTIFF en `raw/topo/dem_glo30/` | sentinelhub, rasterio, scipy, pysheds |
-| `08_extraer_target.py` | SODA + ArcGIS REST | CSV + GeoJSON en `raw/target/` | requests, pandas |
+| `01_extraer_clima_ideam.py` | API SODA datos.gov.co | CSV en `extractores/raw/clima/ideam_*/` | requests, pandas |
+| `02_extraer_chirps.py` | GEE o CHC UCSB | GeoTIFF en `extractores/raw/clima/chirps/` | earthengine-api o requests, rasterio |
+| `03_extraer_suelo_igac.py` | ArcGIS REST IGAC | GeoJSON en `extractores/raw/suelo/igac_*/` | requests |
+| `04_extraer_soilgrids.py` | WCS/COG ISRIC | GeoTIFF en `extractores/raw/suelo/soilgrids/` | requests, rasterio |
+| `05_extraer_sentinel2.py` | SentinelHub CDSE | GeoTIFF en `extractores/raw/satelite/sentinel2/` | sentinelhub, rasterio |
+| `06_extraer_sentinel1.py` | SentinelHub CDSE | GeoTIFF en `extractores/raw/satelite/sentinel1/` | sentinelhub, rasterio |
+| `07_extraer_dem_topografia.py` | SentinelHub CDSE | GeoTIFF en `extractores/raw/topo/dem_glo30/` | sentinelhub, rasterio, scipy, pysheds |
+| `08_extraer_target.py` | SODA + ArcGIS REST | CSV + GeoJSON en `extractores/raw/target/` | requests, pandas |
 
 **Criterios de aceptación:**
 - Cada script es idempotente (verifica existencia antes de descargar)
@@ -52,33 +52,69 @@ Construir un sistema que reciba un polígono geográfico y devuelva un ranking d
 
 ### 2.2 Componente 2 — Procesamiento Geoespacial (`procesamiento/`)
 
-**Estado:** 🔲 Por implementar
+**Estado:** 🔶 En progreso (2.2.1 implementado)
 
 **Responsabilidad:** Transformar datos crudos heterogéneos en capas armonizadas a resolución 10 m en EPSG:3116.
 
 #### 2.2.1 `01_armonizar_espacial.py`
 
-**Entrada:** Archivos en `raw/` (múltiples CRS, resoluciones, formatos)
+**Estado:** ✅ Implementado
+
+**Entrada:** Archivos en `extractores/raw/` (múltiples CRS, resoluciones, formatos)
 **Salida:** GeoTIFF por variable en `processed/` (todos en EPSG:3116, 10 m × 10 m)
 
-**Operaciones requeridas:**
+**Uso:**
+```bash
+# Armonizar todo (orden automático: DEM → IDEAM → CHIRPS → SoilGrids → IGAC → S2 → S1)
+uv run procesamiento/01_armonizar_espacial.py
+
+# Pasos individuales
+uv run procesamiento/01_armonizar_espacial.py --step dem        # DEM + derivadas topográficas
+uv run procesamiento/01_armonizar_espacial.py --step ideam      # Kriging estaciones IDEAM
+uv run procesamiento/01_armonizar_espacial.py --step chirps     # CHIRPS bilineal
+uv run procesamiento/01_armonizar_espacial.py --step soilgrids  # SoilGrids + normalización texturas
+uv run procesamiento/01_armonizar_espacial.py --step igac       # Rasterización IGAC
+uv run procesamiento/01_armonizar_espacial.py --step sentinel2  # Sentinel-2 reproyección
+uv run procesamiento/01_armonizar_espacial.py --step sentinel1  # Sentinel-1 reproyección
+uv run procesamiento/01_armonizar_espacial.py --step validar    # Validar consistencia de capas
+```
+
+**Operaciones implementadas:**
 
 | Dato | Resolución Original | Método de Remuestreo | Notas |
 |------|---------------------|---------------------|-------|
-| Estaciones IDEAM | Puntual | Kriging ordinario + corrección por gradiente adiabático (-6°C/1000m) | Usar `pykrige`. Requiere DEM como covariable. |
-| CHIRPS | ~5.3 km | Resampling bilineal | Validar contra estaciones IDEAM |
-| SoilGrids | 250 m | Bilineal (continuos) / Nearest-neighbor (texturas) | Texturas deben sumar 100% |
-| IGAC vectorial | Polígonos 1:100k | Rasterización con `rasterio.features.rasterize` | Categóricos: vocación, fertilidad |
-| Sentinel-2 | 10 m / 20 m | Bandas 20m → bilineal a 10m; 10m: reproyectar | Calcular índices DESPUÉS del resampling |
-| Sentinel-1 | 10 m | Solo reproyección | Ya está en resolución nativa |
-| DEM Copernicus | 30 m | Calcular derivadas a 30m PRIMERO, luego resamplear a 10m | Evita artefactos de interpolación |
+| Estaciones IDEAM | Puntual | Kriging ordinario + corrección por gradiente adiabático (-6°C/1000m) | `pykrige`. DEM como covariable. |
+| CHIRPS | ~5.3 km | Resampling bilineal | `reproyectar_raster(..., 'bilinear')` |
+| SoilGrids | 250 m | Bilineal (continuos) / Nearest-neighbor (texturas) | clay+sand+silt normalizado a 100% |
+| IGAC vectorial | Polígonos 1:100k | `rasterio.features.rasterize` | Categóricos → tabla JSON de códigos |
+| Sentinel-2 | 10 m / 20 m | Bilineal (bandas 20m → 10m incluido) | Repoyección a EPSG:3116 |
+| Sentinel-1 | 10 m | Bilineal (solo reproyección) | Ya en resolución nativa |
+| DEM Copernicus | 30 m | Derivadas primero a 30 m, luego bilineal a 10 m | Evita artefactos de interpolación |
+
+**Salida en `processed/`:**
+```
+processed/
+├── clima/
+│   ├── ideam/      → {temperatura|precipitacion|humedad}_{semestre}_kriging.tif
+│   └── chirps/     → chirps_YYYY_MM.tif
+├── suelo/
+│   ├── soilgrids/  → soilgrids_{prop}_{prof}cm.tif + *_norm.tif (texturas)
+│   └── igac/       → {ph_agua|sat_aluminio|fosforo|potasio|fertilidad|vocacion}_igac.tif
+│                     + *_tabla_codigos.json (para categóricos)
+├── satelite/
+│   ├── sentinel2/  → mismo nombre que raw, reproyectado
+│   └── sentinel1/  → mismo nombre que raw, reproyectado
+└── topo/
+    ├── dem_{elevacion|pendiente|aspecto|curvatura|twi}_10m.tif
+    └── dem_cundinamarca_10m.tif  (alias de elevacion, para corrección adiabática)
+```
 
 **Dependencias:** rasterio, geopandas, pykrige, scipy, numpy, pyproj
 
 **Criterios de aceptación:**
 - Todas las capas comparten exactamente el mismo extent, resolución y CRS
 - Sin píxeles de borde con valores NoData parciales
-- Tests de validación: verificar que valores caen en rangos físicos esperados
+- `--step validar` verifica ranges físicos esperados y consistencia geométrica
 
 #### 2.2.2 `02_armonizar_temporal.py`
 

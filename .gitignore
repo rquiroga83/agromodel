@@ -70,4 +70,21 @@ coverage.xml
 *~
 .DS_Store
 
-SPEC.md
+# ══════════════════════════════════════════════════════════════════
+# DATOS — no versionar (volumen grande, reproducibles desde extractores)
+# ══════════════════════════════════════════════════════════════════
+
+# Datos crudos descargados
+extractores/raw/
+
+# Capas armonizadas (generadas por procesamiento/)
+processed/
+
+# Vista minable y particiones de entrenamiento (generadas por procesamiento/)
+vista_minable/
+
+# Modelos entrenados (versionar con DVC o MLflow, no con git)
+models/
+
+# Documentación HTML generada
+docs/*.html

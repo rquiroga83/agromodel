@@ -125,14 +125,24 @@ def descargar_capa_arcgis(url, output_path, filtro_depto=True, max_features=5000
     """
     Descarga una Feature Layer de ArcGIS REST en formato GeoJSON.
     Pagina de a 2000 registros.
+    Retorna True si descargó datos, False si el servicio no existe o está vacío.
     """
     if os.path.exists(output_path):
         print(f"  Ya existe: {output_path}")
-        return
+        return True
 
-    where = f"cod_depart = '{DEPT_DANE}'" if filtro_depto else 'OBJECTID>0'
+    # Intentar filtro por departamento; si falla, sin filtro
+    where_options = []
+    if filtro_depto:
+        where_options = [f"cod_depart = '{DEPT_DANE}'", f"COD_DEPTO = '{DEPT_DANE}'", 'OBJECTID>0']
+    else:
+        where_options = ['OBJECTID>0']
+
     all_features = []
     offset = 0
+    errores_consecutivos = 0
+    where = where_options[0]
+    where_idx = 0
 
     while True:
         params = {
@@ -148,12 +158,33 @@ def descargar_capa_arcgis(url, output_path, filtro_depto=True, max_features=5000
         try:
             r = requests.get(f"{url}/query", params=params, timeout=120,
                              headers=HEADERS_GOV)
+            if not r.content:
+                raise ValueError("Respuesta vacía del servidor")
             data = r.json()
         except Exception as e:
-            print(f"    Error en offset {offset}: {e}")
+            errores_consecutivos += 1
+            if errores_consecutivos >= 3:
+                print(f"    Servicio no disponible tras 3 intentos: {e}")
+                return False
+            print(f"    Error en offset {offset}: {e}. Reintentando en 10s...")
             time.sleep(10)
             continue
 
+        # Error de la API ArcGIS (servicio no encontrado, campo inválido, etc.)
+        if 'error' in data:
+            err_msg = data['error'].get('message', '')
+            err_code = data['error'].get('code', 0)
+            # Intentar con siguiente opción de where si hay error de campo
+            if filtro_depto and where_idx < len(where_options) - 1:
+                where_idx += 1
+                where = where_options[where_idx]
+                print(f"    Filtro falló ({err_msg}), probando: {where}")
+                errores_consecutivos = 0
+                continue
+            print(f"    Error ArcGIS [{err_code}]: {err_msg}. Abortando capa.")
+            return False
+
+        errores_consecutivos = 0
         features = data.get('features', [])
         if not features:
             break
@@ -168,13 +199,14 @@ def descargar_capa_arcgis(url, output_path, filtro_depto=True, max_features=5000
         time.sleep(1)
 
     if all_features:
-        geojson = {
-            'type': 'FeatureCollection',
-            'features': all_features
-        }
+        geojson = {'type': 'FeatureCollection', 'features': all_features}
         with open(output_path, 'w') as f:
             json.dump(geojson, f)
         print(f"  Guardado: {output_path} ({len(all_features)} features)")
+        return True
+    else:
+        print(f"  Sin features para esta capa (puede no haber datos en Cundinamarca).")
+        return False
 
 
 def descargar_monitoreo():

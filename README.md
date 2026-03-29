@@ -211,10 +211,30 @@ que-sembrar/
 │   ├── 05_extraer_sentinel2.py
 │   ├── 06_extraer_sentinel1.py
 │   ├── 07_extraer_dem_topografia.py
-│   └── 08_extraer_target.py
+│   ├── 08_extraer_target.py
+│   └── raw/                            # Datos crudos descargados (no en git)
+│       ├── clima/
+│       │   ├── ideam_temperatura/
+│       │   ├── ideam_precipitacion/
+│       │   ├── ideam_humedad/
+│       │   ├── ideam_normales/
+│       │   └── chirps/
+│       ├── suelo/
+│       │   ├── igac_quimica/
+│       │   ├── igac_vocacion/
+│       │   └── soilgrids/
+│       ├── satelite/
+│       │   ├── sentinel2/
+│       │   └── sentinel1/
+│       ├── topo/
+│       │   └── dem_glo30/
+│       └── target/
+│           ├── eva/
+│           ├── monitoreo/
+│           └── sipra/
 │
 ├── procesamiento/                      # Armonización y feature engineering
-│   ├── 01_armonizar_espacial.py
+│   ├── 01_armonizar_espacial.py        # ✅ Implementado
 │   ├── 02_armonizar_temporal.py
 │   ├── 03_feature_engineering.py
 │   └── 04_construir_vista_minable.py
@@ -236,18 +256,21 @@ que-sembrar/
 ├── frontend/                           # Interfaz web
 │   └── (React/Vue app con mapa)
 │
-├── models/                             # Modelos entrenados (.pkl, .pt)
+├── models/                             # Modelos entrenados (.pkl, .pt) — no en git
 │
-├── raw/                                # Datos crudos (no en git, en .gitignore)
+├── processed/                          # Capas armonizadas a 10 m EPSG:3116 — no en git
 │   ├── clima/
+│   │   ├── ideam/
+│   │   └── chirps/
 │   ├── suelo/
+│   │   ├── soilgrids/
+│   │   └── igac/
 │   ├── satelite/
-│   ├── topo/
-│   └── target/
+│   │   ├── sentinel2/
+│   │   └── sentinel1/
+│   └── topo/
 │
-├── processed/                          # Capas armonizadas (no en git)
-│
-├── vista_minable/                      # Tabla final de entrenamiento (no en git)
+├── vista_minable/                      # Tabla final de entrenamiento — no en git
 │
 ├── docs/                               # Documentación técnica (HTML generados)
 │   ├── vista_minable_que_sembrar.html
@@ -326,16 +349,29 @@ Editar `extractores/config.py`:
 ### Descarga de Datos
 
 ```bash
-cd extractores
-
-# Crear estructura de directorios
-python config.py
-
 # Ejecutar todos los extractores
-python run_all.py
+uv run extractores/run_all.py
 
-# O ejecutar uno específico
-python 01_extraer_clima_ideam.py
+# O ejecutar uno específico con pasos independientes
+uv run extractores/run_all.py 01:temp       # Temperatura IDEAM
+uv run extractores/run_all.py 01:precip     # Precipitación (por mes)
+uv run extractores/run_all.py 03:quimica    # IGAC propiedades químicas
+uv run extractores/run_all.py 08:eva        # EVA agropecuaria
+```
+
+### Armonización Espacial
+
+```bash
+# Armonizar todo (DEM → IDEAM → CHIRPS → SoilGrids → IGAC → Sentinel-2/1)
+uv run procesamiento/01_armonizar_espacial.py
+
+# Pasos individuales
+uv run procesamiento/01_armonizar_espacial.py --step dem        # Primero siempre
+uv run procesamiento/01_armonizar_espacial.py --step ideam      # Kriging estaciones
+uv run procesamiento/01_armonizar_espacial.py --step soilgrids
+uv run procesamiento/01_armonizar_espacial.py --step igac
+uv run procesamiento/01_armonizar_espacial.py --step sentinel2
+uv run procesamiento/01_armonizar_espacial.py --step validar    # Verificar consistencia
 ```
 
 ### Entrenamiento
@@ -400,7 +436,7 @@ El diseño del sistema se fundamenta en el análisis de 15+ artículos científi
 - [x] Diseño de modelos de IA justificado por estado del arte
 - [x] Scripts de extracción de datos (8 extractores)
 - [x] Estrategia de preparación de datos y construcción de vista minable
-- [ ] Implementación del pipeline de procesamiento geoespacial
+- [x] Armonización espacial (`procesamiento/01_armonizar_espacial.py`)
 - [ ] Construcción de la vista minable
 - [ ] Entrenamiento y evaluación de modelos
 - [ ] Desarrollo de API REST (FastAPI)

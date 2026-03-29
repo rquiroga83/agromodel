@@ -116,27 +116,51 @@ SODA_DATASETS = {
 UPRA_BASE = 'https://geoservicios.upra.gov.co/arcgis/rest/services'
 
 UPRA_MONITOREO = {
-    'papa_2021_s1':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2021_sem_1/MapServer/0',
-    'papa_2021_s2':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2021_sem_2/MapServer/0',
-    'papa_2022_s1':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2022_sem_1/MapServer/0',
-    'papa_2022_s2':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2022_sem_2/MapServer/0',
-    'papa_2023_s1':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2023_sem_1/MapServer/0',
-    'papa_2023_s2':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2023_sem_2/MapServer/0',
-    'maiz_2022_s1':  f'{UPRA_BASE}/MonitoreoCultivos/maiz_2022_sem_1/MapServer/0',
-    'maiz_2022_s2':  f'{UPRA_BASE}/MonitoreoCultivos/maiz_2022_sem_2/MapServer/0',
-    'arroz_2022_s1': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2022_sem_1/MapServer/0',
-    'arroz_2022_s2': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2022_sem_2/MapServer/0',
+    # Papa (2021-2024)
+    'papa_2021_s1':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2021_s1/MapServer/0',
+    'papa_2021_s2':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2021_s2/MapServer/0',
+    'papa_2022_s1':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2022_s1/MapServer/0',
+    'papa_2022_s2':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2022_s2/MapServer/0',
+    'papa_2023_s1':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2023_s1/MapServer/0',
+    'papa_2023_s2':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2023_s2/MapServer/0',
+    'papa_2024_s1':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2024_s1/MapServer/0',
+    # Maíz (2021-2023, semestres nombrados _1/_2)
+    'maiz_2021_1':   f'{UPRA_BASE}/MonitoreoCultivos/maiz_2021_1/MapServer/0',
+    'maiz_2021_2':   f'{UPRA_BASE}/MonitoreoCultivos/maiz_2021_2/MapServer/0',
+    'maiz_2022_1':   f'{UPRA_BASE}/MonitoreoCultivos/maiz_2022_1/MapServer/0',
+    'maiz_2022_2':   f'{UPRA_BASE}/MonitoreoCultivos/maiz_2022_2/MapServer/0',
+    'maiz_2023_1':   f'{UPRA_BASE}/MonitoreoCultivos/maiz_2023_1/MapServer/0',
+    'maiz_2023_2':   f'{UPRA_BASE}/MonitoreoCultivos/maiz_2023_2/MapServer/0',
+    # Arroz (2021-2024)
+    'arroz_2021_s1': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2021_s1/MapServer/0',
+    'arroz_2021_s2': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2021_s2/MapServer/0',
+    'arroz_2022_s1': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2022_s1/MapServer/0',
+    'arroz_2022_s2': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2022_s2/MapServer/0',
+    'arroz_2023_s1': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2023_s1/MapServer/0',
+    'arroz_2023_s2': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2023_s2/MapServer/0',
+    'arroz_2024_s1': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2024_s1/MapServer/0',
+    # Cacao (2020-2023)
+    'cacao_2020':    f'{UPRA_BASE}/MonitoreoCultivos/Cacao_2020/MapServer/0',
+    'cacao_2021':    f'{UPRA_BASE}/MonitoreoCultivos/Cacao_2021/MapServer/0',
+    'cacao_2022':    f'{UPRA_BASE}/MonitoreoCultivos/Cacao_2022/MapServer/0',
+    'cacao_2023':    f'{UPRA_BASE}/MonitoreoCultivos/Cacao_2023/MapServer/0',
 }
 
 UPRA_APTITUD = {
+    # Cultivos relevantes para Cundinamarca con nombres confirmados en el servidor
     'papa_capiro_s1':   f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_papa_diacol_capiro_sem_1/MapServer/0',
     'papa_capiro_s2':   f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_papa_diacol_capiro_sem_2/MapServer/0',
-    'cafe':             f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_cafe_2016/MapServer/0',
-    'maiz_tecnificado': f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_maiz_tecnificado_2018/MapServer/0',
+    'papa_s1':          f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_papa_sem_1_Dic2019/MapServer/0',
+    'papa_s2':          f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_papa_sem_2_Dic2019/MapServer/0',
+    'cafe':             f'{UPRA_BASE}/aptitud_uso_suelo/Aptitud_Cafe_Jul2022/MapServer/0',
+    'maiz_s1':          f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_maiz_sem_1_diciembre_2019/MapServer/0',
+    'maiz_s2':          f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_maiz_sem_2_diciembre_2019/MapServer/0',
     'palma':            f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_palma_2018/MapServer/0',
-    'fresa':            f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_fresa_julio_2017/MapServer/0',
-    'aguacate_hass':    f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_aguacate_hass_2018/MapServer/0',
-    'cana_panelera':    f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_cana_panelera_2019/MapServer/0',
+    'fresa':            f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_fresa_Dic2019/MapServer/0',
+    'aguacate_hass':    f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_aguacate_hass_Dic2019/MapServer/0',
+    'cana_panelera':    f'{UPRA_BASE}/aptitud_uso_suelo/Aptitud_Cultivo_Comercial_Cana_Panelera_Oct2020/MapServer/0',
+    'cacao':            f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_cacao_diciembre_2019/MapServer/0',
+    'frijol':           f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_frijol_comercial/MapServer/0',
 }
 
 # ──────────────────────────────────────────────────────────────

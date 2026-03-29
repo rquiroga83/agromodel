@@ -4,7 +4,13 @@
       "WebFetch(domain:dev.socrata.com)",
       "WebSearch",
       "WebFetch(domain:www.datos.gov.co)",
-      "WebFetch(domain:data.datos.gov.co)"
+      "WebFetch(domain:data.datos.gov.co)",
+      "Bash(curl -i \"https://geoservicios.upra.gov.co/arcgis/rest/services/MonitoreoCultivos/papa_2021_sem_1/MapServer/0/query?where=OBJECTID>0&outFields=*&f=json&resultRecordCount=1\")",
+      "Bash(curl -k -i \"https://geoservicios.upra.gov.co/arcgis/rest/services/MonitoreoCultivos/papa_2021_sem_1/MapServer/0/query?where=OBJECTID>0&outFields=*&f=json&resultRecordCount=1\")",
+      "Bash(curl -k -i \"https://geoservicios.upra.gov.co/arcgis/rest/services/MonitoreoCultivos/papa_2021_sem_1/MapServer/0?f=json\")",
+      "Bash(curl -k -i \"https://geoservicios.upra.gov.co/arcgis/rest/services/MonitoreoCultivos?f=json\")",
+      "Bash(curl -k -i \"https://geoservicios.upra.gov.co/arcgis/rest/services?f=json\")",
+      "WebFetch(domain:geoservicios.upra.gov.co)"
     ]
   }
 }
