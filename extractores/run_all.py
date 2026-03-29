@@ -1,0 +1,87 @@
+"""
+run_all.py
+═══════════════════════════════════════════════════════════════
+Ejecuta todos los extractores en secuencia para descargar
+los datos crudos del proyecto ¿Qué Sembrar?
+
+Uso:
+    python run_all.py          # Ejecutar todos
+    python run_all.py 3        # Ejecutar solo el script 03 (IGAC)
+    python run_all.py 5 6      # Ejecutar scripts 05 y 06 (Sentinel-2 y 1)
+
+Cada script es idempotente: si un archivo ya existe, lo salta.
+Se puede reanudar después de una interrupción.
+
+pip install requests pandas geopandas rasterio sentinelhub numpy scipy pysheds
+"""
+
+import subprocess
+import sys
+import os
+
+SCRIPTS = [
+    ('01', '01_extraer_clima_ideam.py',     'Clima IDEAM (Temperatura, Precipitación, Humedad, Normales)'),
+    ('02', '02_extraer_chirps.py',          'Precipitación CHIRPS satelital'),
+    ('03', '03_extraer_suelo_igac.py',      'Suelo IGAC (Propiedades Químicas + Vocación de Uso)'),
+    ('04', '04_extraer_soilgrids.py',       'Suelo SoilGrids 2.0 (ISRIC — propiedades físicas)'),
+    ('05', '05_extraer_sentinel2.py',       'Sentinel-2 índices espectrales (CDSE)'),
+    ('06', '06_extraer_sentinel1.py',       'Sentinel-1 backscatter SAR (CDSE)'),
+    ('07', '07_extraer_dem_topografia.py',  'Copernicus DEM topografía (Elevación, Pendiente, TWI)'),
+    ('08', '08_extraer_target.py',          'Target: EVA + Monitoreo UPRA + SIPRA Aptitud'),
+]
+
+
+def main():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Crear estructura de directorios
+    from config import crear_directorios
+    crear_directorios()
+
+    # Filtrar scripts si se especifican números
+    if len(sys.argv) > 1:
+        filtro = set(sys.argv[1:])
+        scripts = [(n, s, d) for n, s, d in SCRIPTS if n in filtro]
+    else:
+        scripts = SCRIPTS
+
+    print("="*70)
+    print("EXTRACCIÓN DE DATOS — PROYECTO ¿QUÉ SEMBRAR?")
+    print("Cundinamarca, Colombia | Ventana: 2019-2024")
+    print("="*70)
+    print(f"\nScripts a ejecutar: {len(scripts)}")
+    for num, script, desc in scripts:
+        print(f"  [{num}] {desc}")
+    print()
+
+    resultados = []
+    for num, script, desc in scripts:
+        print(f"\n{'▓'*70}")
+        print(f"  [{num}] {desc}")
+        print(f"{'▓'*70}\n")
+
+        script_path = os.path.join(base_dir, script)
+        try:
+            result = subprocess.run(
+                [sys.executable, script_path],
+                cwd=base_dir,
+                timeout=7200,  # 2 horas máximo por script
+            )
+            status = '✓ OK' if result.returncode == 0 else f'✗ Error (código {result.returncode})'
+        except subprocess.TimeoutExpired:
+            status = '⏱ Timeout (2h)'
+        except Exception as e:
+            status = f'✗ Error: {e}'
+
+        resultados.append((num, desc, status))
+
+    print(f"\n\n{'='*70}")
+    print("RESUMEN DE EXTRACCIÓN")
+    print(f"{'='*70}")
+    for num, desc, status in resultados:
+        print(f"  [{num}] {status:20s} {desc}")
+    print(f"{'='*70}")
+
+
+if __name__ == '__main__':
+    main()

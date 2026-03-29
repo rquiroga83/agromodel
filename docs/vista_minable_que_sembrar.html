@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vista Minable — Módulo ¿Qué Sembrar? | Cundinamarca, Colombia</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;800&family=Source+Sans+3:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-primary: #faf9f6;
+  --bg-secondary: #f0ede6;
+  --bg-card: #ffffff;
+  --text-primary: #1a1a1a;
+  --text-secondary: #4a4a4a;
+  --text-muted: #7a7a7a;
+  --accent-green: #2d6a4f;
+  --accent-green-light: #40916c;
+  --accent-gold: #b08d57;
+  --accent-earth: #8b6f47;
+  --accent-blue: #1b4965;
+  --accent-satellite: #3a5a8c;
+  --accent-topo: #6b4c3b;
+  --accent-target: #7b2d26;
+  --border-light: #e0ddd6;
+  --border-medium: #c8c4ba;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 30px rgba(0,0,0,0.1);
+  --radius: 8px;
+  --radius-lg: 14px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Source Sans 3', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.7;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── HEADER ─── */
+.hero {
+  background: linear-gradient(135deg, #1a3c28 0%, #2d6a4f 40%, #1b4965 100%);
+  color: #fff;
+  padding: 80px 0 60px;
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  opacity: 0.5;
+}
+.hero-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 40px;
+  position: relative;
+  z-index: 1;
+}
+.hero h1 {
+  font-family: 'Playfair Display', serif;
+  font-size: 3rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin-bottom: 16px;
+}
+.hero .subtitle {
+  font-size: 1.2rem;
+  font-weight: 300;
+  opacity: 0.85;
+  max-width: 750px;
+  line-height: 1.6;
+}
+.hero .meta-info {
+  margin-top: 30px;
+  display: flex;
+  gap: 30px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+.hero .meta-info span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ─── LAYOUT ─── */
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 40px;
+}
+
+/* ─── TOC ─── */
+.toc-section {
+  padding: 50px 0 30px;
+}
+.toc-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 36px 40px;
+  box-shadow: var(--shadow-sm);
+}
+.toc-card h2 {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.4rem;
+  margin-bottom: 20px;
+  color: var(--accent-green);
+}
+.toc-list {
+  list-style: none;
+  columns: 2;
+  column-gap: 40px;
+}
+.toc-list li {
+  break-inside: avoid;
+  margin-bottom: 8px;
+}
+.toc-list a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.95rem;
+  transition: color 0.2s;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.toc-list a:hover { color: var(--accent-green); }
+.toc-list .toc-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--accent-gold);
+  min-width: 28px;
+}
+
+/* ─── SECTIONS ─── */
+section.content-section {
+  padding: 50px 0;
+  border-top: 1px solid var(--border-light);
+}
+section.content-section:first-of-type {
+  border-top: none;
+}
+
+h2.section-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 24px;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+h3.subsection-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin: 36px 0 16px;
+  color: var(--text-primary);
+}
+h4.feature-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 24px 0 10px;
+  color: var(--accent-green-light);
+}
+
+p {
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+}
+p.lead {
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  line-height: 1.75;
+}
+
+/* ─── CATEGORY BANNERS ─── */
+.category-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 28px;
+  border-radius: var(--radius-lg);
+  margin-bottom: 28px;
+  color: #fff;
+}
+.category-banner.climate { background: linear-gradient(135deg, var(--accent-blue), #2a6f97); }
+.category-banner.soil { background: linear-gradient(135deg, var(--accent-earth), #a67c52); }
+.category-banner.satellite { background: linear-gradient(135deg, var(--accent-satellite), #5a7fad); }
+.category-banner.topo { background: linear-gradient(135deg, var(--accent-topo), #8c6b55); }
+.category-banner.target { background: linear-gradient(135deg, var(--accent-target), #a04030); }
+.category-banner.engineered { background: linear-gradient(135deg, #4a4063, #6b5b8a); }
+
+.category-banner .cat-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+.category-banner .cat-text h3 {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.3rem;
+  margin-bottom: 4px;
+}
+.category-banner .cat-text p {
+  font-size: 0.88rem;
+  opacity: 0.85;
+  color: #fff;
+  margin: 0;
+}
+
+/* ─── FEATURE TABLE ─── */
+.feature-table-wrapper {
+  overflow-x: auto;
+  margin: 24px 0;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-light);
+}
+table.feature-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  background: var(--bg-card);
+}
+table.feature-table thead th {
+  background: #f5f3ee;
+  padding: 14px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--border-medium);
+  white-space: nowrap;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+table.feature-table tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
+  vertical-align: top;
+  color: var(--text-secondary);
+}
+table.feature-table tbody tr:last-child td { border-bottom: none; }
+table.feature-table tbody tr:hover { background: #faf9f5; }
+
+.badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.badge-climate { background: #e3edf5; color: var(--accent-blue); }
+.badge-soil { background: #f0e8dd; color: var(--accent-earth); }
+.badge-satellite { background: #e5eaf3; color: var(--accent-satellite); }
+.badge-topo { background: #ede5dd; color: var(--accent-topo); }
+.badge-target { background: #f3e0de; color: var(--accent-target); }
+.badge-engineered { background: #e8e3f0; color: #4a4063; }
+
+code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.84em;
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--accent-green);
+}
+
+/* ─── CALLOUT ─── */
+.callout {
+  background: var(--bg-secondary);
+  border-left: 4px solid var(--accent-gold);
+  padding: 20px 24px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  margin: 24px 0;
+}
+.callout p { margin: 0; color: var(--text-secondary); font-size: 0.95rem; }
+.callout strong { color: var(--text-primary); }
+
+.callout-ref {
+  background: #f5f8f6;
+  border-left: 4px solid var(--accent-green);
+  padding: 16px 20px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  margin: 16px 0;
+  font-size: 0.88rem;
+}
+.callout-ref p { margin: 0; }
+
+/* ─── DIAGRAM ─── */
+.architecture-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  margin: 30px 0;
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+}
+.arch-flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.arch-node {
+  padding: 14px 22px;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+  text-align: center;
+  min-width: 130px;
+}
+.arch-arrow {
+  font-size: 1.4rem;
+  color: var(--text-muted);
+}
+
+/* ─── FOOTER ─── */
+.doc-footer {
+  padding: 40px 0;
+  border-top: 1px solid var(--border-light);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* ─── RESPONSIVE ─── */
+@media (max-width: 768px) {
+  .hero h1 { font-size: 2rem; }
+  .container { padding: 0 20px; }
+  .toc-list { columns: 1; }
+  .hero-inner { padding: 0 20px; }
+  .arch-flow { flex-direction: column; }
+  .arch-arrow { transform: rotate(90deg); }
+  table.feature-table { font-size: 0.8rem; }
+}
+
+@media print {
+  .hero { background: #2d6a4f !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-size: 11pt; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════ HERO ═══════════════════════ -->
+<header class="hero">
+  <div class="hero-inner">
+    <h1>Estructura de la Vista Minable<br>Módulo «¿Qué Sembrar?»</h1>
+    <p class="subtitle">Documentación detallada de las variables, su origen, propósito y justificación basada en el estado del arte para el modelo de recomendación de cultivos en Cundinamarca, Colombia.</p>
+    <div class="meta-info">
+      <span>📍 Cundinamarca, Colombia</span>
+      <span>📄 Documento Técnico de Arquitectura de Datos</span>
+      <span>📅 2026</span>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+<!-- ═══════════════════════ TOC ═══════════════════════ -->
+<nav class="toc-section">
+  <div class="toc-card">
+    <h2>Contenido</h2>
+    <ol class="toc-list">
+      <li><a href="#sec1"><span class="toc-num">1</span> Introducción y Contexto del Proyecto</a></li>
+      <li><a href="#sec2"><span class="toc-num">2</span> Arquitectura General del Pipeline de Datos</a></li>
+      <li><a href="#sec3"><span class="toc-num">3</span> Familia 1 — Variables Climáticas</a></li>
+      <li><a href="#sec4"><span class="toc-num">4</span> Familia 2 — Variables Edafológicas (Suelo)</a></li>
+      <li><a href="#sec5"><span class="toc-num">5</span> Familia 3 — Variables Satelitales (Percepción Remota)</a></li>
+      <li><a href="#sec6"><span class="toc-num">6</span> Familia 4 — Variables Topográficas</a></li>
+      <li><a href="#sec7"><span class="toc-num">7</span> Familia 5 — Variables Derivadas e Ingeniería de Features</a></li>
+      <li><a href="#sec8"><span class="toc-num">8</span> Variable Objetivo (Target) — Etiquetado</a></li>
+      <li><a href="#sec9"><span class="toc-num">9</span> Estructura Consolidada de la Vista Minable</a></li>
+      <li><a href="#sec10"><span class="toc-num">10</span> Justificación Integrada desde el Estado del Arte</a></li>
+      <li><a href="#sec11"><span class="toc-num">11</span> Referencias Bibliográficas</a></li>
+    </ol>
+  </div>
+</nav>
+
+<!-- ═══════════════════════ 1. INTRODUCCION ═══════════════════════ -->
+<section class="content-section" id="sec1">
+  <h2 class="section-title">1. Introducción y Contexto del Proyecto</h2>
+  <p class="lead">El módulo «¿Qué Sembrar?» tiene como objetivo recibir un polígono geográfico —la parcela del agricultor— y devolver un ranking de cultivos ordenados por probabilidad de éxito, fundamentado en la aptitud agroecológica real de esa ubicación específica en el departamento de Cundinamarca.</p>
+
+  <p>La literatura reciente sobre sistemas de recomendación de cultivos basados en aprendizaje automático demuestra que la integración de múltiples familias de datos —climáticos, edafológicos, satelitales y topográficos— mejora significativamente la capacidad predictiva de los modelos. Estudios como los de Emmanuel N. et al. (2024) en Ruanda, Hasan et al. (2023) en Bangladesh, y Agrawal et al. (2023) en India, coinciden en que las variables más influyentes para la aptitud de cultivos incluyen temperatura, precipitación, humedad, pH del suelo, contenidos de N-P-K y variables topográficas como pendiente y elevación.</p>
+
+  <p>El enfoque propuesto se distingue de la literatura existente en tres aspectos fundamentales: (i) la escala espacial opera a nivel de parcela y no de municipio o región administrativa; (ii) integra datos de percepción remota multitemporal con índices espectrales derivados de Sentinel-1 y Sentinel-2; y (iii) las etiquetas de entrenamiento provienen de datos oficiales colombianos (EVA-UPRA), lo que garantiza relevancia agronómica local.</p>
+
+  <div class="callout">
+    <p><strong>Definición de Vista Minable:</strong> Tabla rectangular donde cada fila representa una unidad espacial de análisis (píxel o parcela en Cundinamarca) y cada columna un feature o variable predictora. Es la estructura de datos lista para el entrenamiento del modelo de clasificación multiclase de aptitud de cultivos.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════ 2. ARQUITECTURA ═══════════════════════ -->
+<section class="content-section" id="sec2">
+  <h2 class="section-title">2. Arquitectura General del Pipeline de Datos</h2>
+  <p>El pipeline integra cuatro familias de features más una capa de ingeniería de variables derivadas, que alimentan conjuntamente la vista minable. El modelo utiliza como etiquetas de entrenamiento los datos históricos de las Evaluaciones Agropecuarias Municipales (EVA) y el monitoreo satelital de la UPRA.</p>
+
+  <div class="architecture-box">
+    <p style="font-weight:600; margin-bottom:8px; color:var(--text-primary);">Flujo de Integración de Datos</p>
+    <div class="arch-flow">
+      <div class="arch-node" style="background:var(--accent-blue);">🌤 Climáticos<br><small>IDEAM / CHIRPS</small></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="background:var(--accent-earth);">🪨 Edafológicos<br><small>IGAC / SoilGrids</small></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="background:var(--accent-satellite);">🛰 Satelitales<br><small>Sentinel-1/2</small></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="background:var(--accent-topo);">⛰ Topográficos<br><small>Copernicus DEM</small></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="background:var(--accent-green);">📊 Vista Minable<br><small>+ Feature Eng.</small></div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node" style="background:var(--accent-target);">🎯 Target<br><small>EVA / UPRA</small></div>
+    </div>
+  </div>
+
+  <p>Cada variable se alinea espacialmente al CRS del proyecto (EPSG:4326 o EPSG:3116 para Colombia) y se remuestrea a una resolución común. La unidad de análisis principal es el píxel de 10 m (resolución de Sentinel-2), aunque variables de menor resolución se interpolan o desagregan según su naturaleza.</p>
+</section>
+
+<!-- ═══════════════════════ 3. CLIMATICAS ═══════════════════════ -->
+<section class="content-section" id="sec3">
+  <div class="category-banner climate">
+    <div class="cat-icon">🌤</div>
+    <div class="cat-text">
+      <h3>Familia 1 — Variables Climáticas</h3>
+      <p>Datos meteorológicos del IDEAM, normales climatológicas y estimaciones satelitales CHIRPS</p>
+    </div>
+  </div>
+
+  <p class="lead">Las variables climáticas constituyen el pilar fundamental de todo sistema de recomendación de cultivos. La literatura es unánime: temperatura, precipitación y humedad figuran entre los tres a cinco features de mayor importancia en todos los modelos revisados.</p>
+
+  <h3 class="subsection-title">3.1 Temperatura Ambiente del Aire</h3>
+  <p><strong>Fuente:</strong> IDEAM — dataset «Temperatura Ambiente del Aire» (datos.gov.co, dataset sbwg-7ju4). Registros horarios de estaciones meteorológicas automáticas con control de calidad básico conforme a recomendaciones de la OMM.</p>
+  <p><strong>Variables derivadas para la vista minable:</strong></p>
+
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr><th>Feature</th><th>Unidad</th><th>Resolución Temporal</th><th>Propósito</th><th>Justificación Estado del Arte</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>temp_media_anual</code></td>
+          <td>°C</td>
+          <td>Anual (promedio)</td>
+          <td>Determinar el rango térmico general de la parcela; discriminar pisos térmicos en Cundinamarca</td>
+          <td>Emmanuel N. et al. (2024) identifican la temperatura como uno de los top-5 features por importancia en Random Forest. Jeong et al. (2016) la usan como predictor principal para trigo, maíz y papa a escala global.</td>
+        </tr>
+        <tr>
+          <td><code>temp_max_media</code></td>
+          <td>°C</td>
+          <td>Mensual (promedio del máximo)</td>
+          <td>Identificar estrés por calor que limita cultivos sensibles como papa y hortalizas</td>
+          <td>Hasan et al. (2023) incluyen temperatura máxima como variable ambiental clave en su sistema de predicción KRR para Bangladesh. Jeong et al. (2016) usan <code>maxt</code> como predictor en modelos RF globales.</td>
+        </tr>
+        <tr>
+          <td><code>temp_min_media</code></td>
+          <td>°C</td>
+          <td>Mensual (promedio del mínimo)</td>
+          <td>Detectar riesgo de heladas, crítico en altiplano cundiboyacense para cultivos como papa, fresa y flores</td>
+          <td>Jeong et al. (2016) emplean <code>mint</code> como variable crítica. El estudio de Ucrania citado por Hamza et al. (2025) muestra que condiciones extremas de temperatura afectan entre 36-40% del rendimiento.</td>
+        </tr>
+        <tr>
+          <td><code>amplitud_termica</code></td>
+          <td>°C</td>
+          <td>Mensual</td>
+          <td>Variable ingenierizada: diferencia entre temp_max y temp_min; indica estrés diurno-nocturno</td>
+          <td>Emmanuel N. et al. (2024) proponen métricas climáticas ajustadas por altitud como feature engineering que mejora la generalización del modelo.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="subsection-title">3.2 Precipitación</h3>
+  <p><strong>Fuentes:</strong> (1) IDEAM — dataset «Precipitación» (datos.gov.co, dataset s54a-sgyg), registros cada 10 minutos; (2) CHIRPS v3 — estimaciones satelitales infrarrojas con corrección de estaciones, resolución ~5.3 km, cobertura desde 1981.</p>
+
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr><th>Feature</th><th>Unidad</th><th>Fuente</th><th>Propósito</th><th>Justificación Estado del Arte</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>precip_acum_anual</code></td>
+          <td>mm/año</td>
+          <td>IDEAM + CHIRPS</td>
+          <td>Balance hídrico general; discriminar zonas secas vs. húmedas en Cundinamarca</td>
+          <td>Rainfall es consistentemente el feature #1 o #2 en importancia según análisis SHAP en múltiples estudios: AgroXAI (Kara et al., 2024), Shams et al. (2024), Hamza et al. (2025). Agrawal et al. (2023) le asignan peso de 5.59-10.37% en AHP.</td>
+        </tr>
+        <tr>
+          <td><code>precip_mensual_[01-12]</code></td>
+          <td>mm/mes</td>
+          <td>IDEAM + CHIRPS</td>
+          <td>Capturar bimodalidad de lluvias típica de Cundinamarca (abril-mayo y octubre-noviembre)</td>
+          <td>Las normales climatológicas del IDEAM proveen medias mensuales 1961-2020. Hasan et al. (2023) utilizan datos mensuales para capturar estacionalidad en la predicción.</td>
+        </tr>
+        <tr>
+          <td><code>dias_con_lluvia</code></td>
+          <td>días/año</td>
+          <td>IDEAM Normales</td>
+          <td>Frecuencia de eventos; distribución temporal de la precipitación</td>
+          <td>Las normales del IDEAM incluyen «número de días con precipitación ≥ 1mm» como parámetro estándar OMM. Diferencia cultivos que requieren lluvia frecuente vs. acumulada.</td>
+        </tr>
+        <tr>
+          <td><code>precip_semestre_[1|2]</code></td>
+          <td>mm/semestre</td>
+          <td>IDEAM + CHIRPS</td>
+          <td>Alinear con ciclos de siembra semestral de cultivos transitorios (EVA reporta datos semestrales)</td>
+          <td>Emmanuel N. et al. (2024) destacan las «Seasonal Timing Variables» como features de ingeniería que mejoran la generalización del modelo. Las EVA de la UPRA reportan datos semestrales.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout-ref">
+    <p><strong>Nota sobre CHIRPS v3:</strong> Los datos CHIRPS complementan las estaciones IDEAM donde existan vacíos de cobertura. Su resolución de ~5.3 km es adecuada para análisis a escala municipal, aunque se debe validar contra estaciones locales cuando estén disponibles, dado que puede subestimar lluvias intensas y sobreestimar lluvias ligeras en ciertas regiones.</p>
+  </div>
+
+  <h3 class="subsection-title">3.3 Humedad del Aire</h3>
+  <p><strong>Fuente:</strong> IDEAM — dataset «Humedad del Aire» (datos.gov.co, dataset uext-mhny). Registros horarios a 2 metros de altura.</p>
+
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr><th>Feature</th><th>Unidad</th><th>Propósito</th><th>Justificación Estado del Arte</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>humedad_media_anual</code></td>
+          <td>%</td>
+          <td>Indicador de disponibilidad de agua atmosférica; incide en evapotranspiración y susceptibilidad a enfermedades fúngicas</td>
+          <td>Análisis SHAP en AgroXAI (Kara et al., 2024) identifican humedad como el feature más importante para clasificación de cultivos tanto en RF como en LGBM. Cartolano et al. (2024) confirman que humedad y fósforo son los features más relevantes para la predicción de la clase «apple».</td>
+        </tr>
+        <tr>
+          <td><code>humedad_media_mensual_[01-12]</code></td>
+          <td>%</td>
+          <td>Capturar variabilidad estacional; complementar la precipitación con el estado hídrico atmosférico</td>
+          <td>Hamza et al. (2025) incluyen humedad como uno de los 7 features principales. Emmanuel N. et al. (2024) la listan como top-10 en importancia de Random Forest.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="subsection-title">3.4 Normales Climatológicas</h3>
+  <p><strong>Fuente:</strong> IDEAM — dataset «Normales Climatológicas de Colombia» (datos.gov.co, dataset nsz2-kzcq). Medias mensuales y anual calculadas para el período 1961-2020.</p>
+  <p>Este dataset integra las medias de todos los parámetros climáticos (precipitación total, temperaturas máxima-mínima-media, brillo solar, humedad, evaporación) para el período de referencia del cambio climático. Es fundamental para calcular anomalías respecto a la línea base y para caracterizar el clima «normal» de cada estación.</p>
+
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr><th>Feature</th><th>Unidad</th><th>Propósito</th><th>Justificación</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>brillo_solar_mensual</code></td>
+          <td>horas</td>
+          <td>Radiación solar disponible para fotosíntesis; factor limitante en zonas nubladas de Cundinamarca</td>
+          <td>Jeong et al. (2016) emplean radiación solar estacional como predictor. El brillo solar determina la fotosíntesis neta y el ciclo fenológico de los cultivos.</td>
+        </tr>
+        <tr>
+          <td><code>evaporacion_mensual</code></td>
+          <td>mm</td>
+          <td>Estimación de demanda evaporativa; proxy de evapotranspiración potencial</td>
+          <td>Jeong et al. (2016) incluyen evapotranspiración estimada (EVA) como predictor en modelos RF globales de rendimiento.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════ 4. EDAFOLOGICAS ═══════════════════════ -->
+<section class="content-section" id="sec4">
+  <div class="category-banner soil">
+    <div class="cat-icon">🪨</div>
+    <div class="cat-text">
+      <h3>Familia 2 — Variables Edafológicas (Suelo)</h3>
+      <p>IGAC (mapas nacionales a 1:100.000), SoilGrids 2.0 (mapas globales a 250 m) y datos complementarios FAO</p>
+    </div>
+  </div>
+
+  <p class="lead">Las propiedades del suelo son determinantes directos de la aptitud agrícola. La evaluación de aptitud de tierras de la FAO (1981) establece que los factores edafológicos definen los límites biofísicos de la producción. Agrawal et al. (2023) demuestran mediante AHP que el pH del suelo tiene la mayor ponderación (19.7-20.5%) entre todos los parámetros evaluados para trigo y mostaza.</p>
+
+  <h3 class="subsection-title">4.1 Propiedades Químicas del Suelo (IGAC)</h3>
+  <p><strong>Fuente:</strong> IGAC — «Distribución y Calidad de las Propiedades Químicas del Territorio Nacional» (escala 1:100.000). Mapa publicado en <em>Suelos y Tierras de Colombia 2016</em>, basado en 12.690 horizontes de 4.235 perfiles. Formato GeoJSON vía geoservicios IGAC.</p>
+
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr><th>Feature</th><th>Unidad</th><th>Fuente</th><th>Propósito</th><th>Justificación Estado del Arte</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ph_suelo</code></td>
+          <td>pH (0-14)</td>
+          <td>IGAC + SoilGrids (<code>phh2o</code>)</td>
+          <td>Disponibilidad de nutrientes, toxicidad por aluminio. En Colombia el 84.1% de los suelos tienen pH ≤ 5.5 (ácidos)</td>
+          <td>Agrawal et al. (2023) le asignan la mayor ponderación AHP (20.5%). En SHAP, pH contribuye positiva o negativamente según el cultivo (Kara et al., 2024). Hamza et al. (2025) y Cartolano et al. (2024) confirman su relevancia.</td>
+        </tr>
+        <tr>
+          <td><code>saturacion_aluminio</code></td>
+          <td>%</td>
+          <td>IGAC</td>
+          <td>Toxicidad alumínica en suelos ácidos; principal limitante químico en trópicos</td>
+          <td>El mapa IGAC reporta distribución espacial. La saturación de aluminio es un factor limitante crítico no incluido en datasets internacionales estándar pero esencial para Colombia.</td>
+        </tr>
+        <tr>
+          <td><code>saturacion_bases</code></td>
+          <td>%</td>
+          <td>IGAC</td>
+          <td>Indicador de fertilidad; valores altos favorecen disponibilidad de Ca, Mg, K</td>
+          <td>Agrawal et al. (2023) incluyen ESP (sodio intercambiable) con peso de 6.26-8.40%. La saturación de bases es complementaria e indica salud general del complejo de intercambio.</td>
+        </tr>
+        <tr>
+          <td><code>fosforo_disponible</code></td>
+          <td>ppm o kg/ha</td>
+          <td>IGAC + SoilGrids</td>
+          <td>Macronutriente esencial para desarrollo radicular y floración</td>
+          <td>Análisis SHAP en RF y LGBM (Kara et al., 2024) identifican fósforo como 2do feature más importante. Agrawal et al. (2023) le asignan 10.66-12.42% de peso. Cartolano et al. (2024) confirman que P es determinante para clasificar manzana y otros cultivos.</td>
+        </tr>
+        <tr>
+          <td><code>potasio_intercambiable</code></td>
+          <td>ppm o kg/ha</td>
+          <td>IGAC + SoilGrids</td>
+          <td>Macronutriente para resistencia a enfermedades y calidad del fruto</td>
+          <td>Hamza et al. (2025) muestran correlación P-K de 0.74 en su análisis exploratorio. Agrawal et al. (2023) le asignan 10.66-14.00% de peso AHP. Kara et al. (2024) lo identifican como feature decisivo en explicaciones LIME.</td>
+        </tr>
+        <tr>
+          <td><code>fertilidad_natural</code></td>
+          <td>Clase categórica</td>
+          <td>IGAC</td>
+          <td>Clasificación integrada de aptitud química del suelo</td>
+          <td>El mapa IGAC de Vocación de Uso incluye la fertilidad como uno de los criterios de las matrices de decisión. Reduce dimensionalidad de múltiples variables químicas en un indicador sintético.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="subsection-title">4.2 Propiedades Físicas del Suelo (SoilGrids 2.0)</h3>
+  <p><strong>Fuente:</strong> SoilGrids 2.0 (ISRIC) — mapas globales a 250 m de resolución generados por machine learning. Acceso vía WCS, REST API o descarga masiva WebDAV. Complementa la información IGAC donde existan vacíos.</p>
+
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr><th>Feature</th><th>ID SoilGrids</th><th>Unidad</th><th>Profundidades</th><th>Propósito</th><th>Justificación</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>arcilla</code></td>
+          <td><code>clay</code></td>
+          <td>%</td>
+          <td>0-5, 5-15, 15-30 cm</td>
+          <td>Textura del suelo; retención de agua y nutrientes</td>
+          <td>Agrawal et al. (2023) incluyen textura del suelo con peso de 3.40-4.26% en AHP. Jeong et al. (2016) usan <code>clay</code> como predictor no-climático en modelos de papa y maíz.</td>
+        </tr>
+        <tr>
+          <td><code>arena</code></td>
+          <td><code>sand</code></td>
+          <td>%</td>
+          <td>0-5, 5-15, 15-30 cm</td>
+          <td>Drenaje, aireación; complementaria a arcilla para definir clase textural</td>
+          <td>La textura (combinación arena-arcilla-limo) es un parámetro FAO estándar para evaluación de aptitud de tierras.</td>
+        </tr>
+        <tr>
+          <td><code>limo</code></td>
+          <td><code>silt</code></td>
+          <td>%</td>
+          <td>0-5, 5-15, 15-30 cm</td>
+          <td>Erosionabilidad; retención de agua intermedia</td>
+          <td>Completa la determinación de la clase textural del triángulo de suelos USDA.</td>
+        </tr>
+        <tr>
+          <td><code>densidad_aparente</code></td>
+          <td><code>bdod</code></td>
+          <td>kg/dm³</td>
+          <td>0-5, 5-15, 15-30 cm</td>
+          <td>Compactación; capacidad de enraizamiento y porosidad</td>
+          <td>Jeong et al. (2016) utilizan <code>bulk</code> (densidad aparente) como predictor para papa y maíz. Necesaria para cálculo de stock de carbono.</td>
+        </tr>
+        <tr>
+          <td><code>carbono_organico</code></td>
+          <td><code>soc</code></td>
+          <td>g/kg</td>
+          <td>0-5, 5-15, 15-30 cm</td>
+          <td>Salud del suelo, fertilidad, retención hídrica, actividad biológica</td>
+          <td>Agrawal et al. (2023) asignan 6.26-7.63% de peso al carbono orgánico. El Mapa Nacional de Stock de COS de Colombia (IGAC, 2017) muestra rango de 10-264 t/ha con mayor contenido en zonas altas.</td>
+        </tr>
+        <tr>
+          <td><code>nitrogeno_total</code></td>
+          <td><code>nitrogen</code></td>
+          <td>g/kg</td>
+          <td>0-5, 5-15, 15-30 cm</td>
+          <td>Macronutriente primario; factor limitante en la mayoría de suelos agrícolas</td>
+          <td>Agrawal et al. (2023) le asignan 12.42-17.27% de peso AHP (2do más importante después del pH). Mohan et al. (2024) demuestran su relevancia en predicción de rendimiento de arroz.</td>
+        </tr>
+        <tr>
+          <td><code>CIC</code></td>
+          <td><code>cec</code></td>
+          <td>cmol/kg</td>
+          <td>0-30 cm</td>
+          <td>Capacidad de intercambio catiónico; indica capacidad del suelo para retener nutrientes</td>
+          <td>Criterio FAO para clasificación de suelos negros (≥25 cmol/kg). Indicador integrador de fertilidad química del suelo.</td>
+        </tr>
+        <tr>
+          <td><code>stock_carbono_0_30</code></td>
+          <td><code>ocs</code></td>
+          <td>t/ha</td>
+          <td>0-30 cm</td>
+          <td>Reserva total de carbono; indicador de salud ecosistémica y potencial de secuestro</td>
+          <td>El Mapa Nacional IGAC (2017) y el protocolo FAO-GSP proporcionan esta métrica. Relevante para la intersección agricultura-cambio climático.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="subsection-title">4.3 Vocación de Uso del Suelo (IGAC)</h3>
+  <p><strong>Fuente:</strong> IGAC — «Vocación de Uso del Territorio Nacional» (escala 1:100.000, fecha de elaboración 2013).</p>
+
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr><th>Feature</th><th>Tipo</th><th>Propósito</th><th>Justificación</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>vocacion_uso</code></td>
+          <td>Categórico (18 clases)</td>
+          <td>Clasificación oficial que integra clima, pendiente, erosión, humedad, granulometría, pedregosidad, profundidad efectiva, fertilidad y salinidad en 5 grandes clases: agrícola, ganadera, agroforestal, forestal, conservación</td>
+          <td>Variable sintética oficial que integra el criterio experto del IGAC. Funciona como feature de alto nivel y también como benchmark de validación contra las predicciones del modelo. Similar a las zonificaciones de aptitud UPRA/SIPRA.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="subsection-title">4.4 Mapa Nacional de Suelos Negros (IGAC/FAO)</h3>
+  <p><strong>Fuente:</strong> IGAC — Mapa de Suelos Negros de Colombia (2022), basado en 6.322 perfiles, formato TIFF, escala 1:1.000.000.</p>
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr><th>Feature</th><th>Tipo</th><th>Propósito</th><th>Justificación</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>suelo_negro_categoria</code></td>
+          <td>Categórico (1ª, 2ª categoría, no aplica)</td>
+          <td>Identificar suelos de alta fertilidad natural con alto contenido de materia orgánica; zonas con potencial agrícola intrínseco</td>
+          <td>Iniciativa FAO-GSP. Los suelos negros son reconocidos como intrínsecamente productivos. Su presencia indica potencial de alta fertilidad sin enmiendas significativas.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════ 5. SATELITALES ═══════════════════════ -->
+<section class="content-section" id="sec5">
+  <div class="category-banner satellite">
+    <div class="cat-icon">🛰</div>
+    <div class="cat-text">
+      <h3>Familia 3 — Variables Satelitales (Percepción Remota)</h3>
+      <p>Sentinel-2 (óptico multiespectral) y Sentinel-1 (radar SAR) de la misión Copernicus</p>
+    </div>
+  </div>
+
+  <p class="lead">Las imágenes satelitales multitemporales proveen información única sobre el estado fenológico de la vegetación, la humedad superficial del suelo y las coberturas del terreno. El estudio de Iqbal et al. (2023) demuestra que combinando 10 bandas espectrales y 5 índices de vegetación de Sentinel-2, con matrices de datos de dimensión 30×15 por campo, los modelos LSTM alcanzan precisión superior al 93% en clasificación de cultivos.</p>
+
+  <h3 class="subsection-title">5.1 Índices Espectrales Derivados de Sentinel-2</h3>
+  <p>Los índices se calculan a partir de imágenes L2A (corrección atmosférica BOA) descargadas desde Copernicus Data Space o procesadas en Google Earth Engine.</p>
+
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr><th>Feature</th><th>Fórmula</th><th>Resolución</th><th>Propósito</th><th>Justificación Estado del Arte</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>NDVI</code></td>
+          <td>(B8−B4)/(B8+B4)</td>
+          <td>10 m</td>
+          <td>Vigor vegetativo general; biomasa fotosintéticamente activa. Rango -1 a 1; densamente vegetado → ~1</td>
+          <td>Iqbal et al. (2023) lo seleccionan como el índice primario para clasificación de cultivos. Bolívar-Santamaría & Reu (2021) lo usan en los Andes colombianos para discriminar sistemas agroforestales de bosque con 94% de precisión.</td>
+        </tr>
+        <tr>
+          <td><code>GNDVI</code></td>
+          <td>(B8−B3)/(B8+B3)</td>
+          <td>10 m</td>
+          <td>Sensible a variaciones de clorofila y nitrógeno foliar; más útil en pronóstico de rendimiento que NDVI</td>
+          <td>Iqbal et al. (2023) indican que GNDVI es indicador de actividad fotosintética, por tanto más útil en predicción de rendimiento que NDVI.</td>
+        </tr>
+        <tr>
+          <td><code>EVI</code></td>
+          <td>2.5×(B8−B4)/(B8+6×B4−7.5×B2+1)</td>
+          <td>10 m</td>
+          <td>Corrige efectos atmosféricos; funciona mejor en zonas de alta biomasa tropical</td>
+          <td>Iqbal et al. (2023) destacan que EVI elimina ruido en canopias densas, proporcionando estimación más precisa del verdor. Esencial para Cundinamarca donde hay zonas de alta biomasa.</td>
+        </tr>
+        <tr>
+          <td><code>NDWI</code></td>
+          <td>(B3−B8)/(B3+B8)</td>
+          <td>10 m</td>
+          <td>Contenido de agua en vegetación y detección de cuerpos de agua</td>
+          <td>Complementa la información de humedad del suelo. Permite discriminar cultivos con alto requerimiento hídrico como arroz de cultivos de secano.</td>
+        </tr>
+        <tr>
+          <td><code>MSAVI</code></td>
+          <td>(2×B8+1−√((2×B8+1)²−8×(B8−B4)))/2</td>
+          <td>10 m</td>
+          <td>Minimiza influencia del suelo desnudo en etapas tempranas de cultivos</td>
+          <td>Ventaja sobre NDVI/SAVI en fases fenológicas tempranas (siembra, emergencia) donde la señal del suelo domina la reflectancia. Venancio et al. (2019) demuestran la utilidad de SAVI para pronóstico de maíz a nivel de finca.</td>
+        </tr>
+        <tr>
+          <td><code>BSI</code></td>
+          <td>(B11+B4−B8−B2)/(B11+B4+B8+B2)</td>
+          <td>20 m</td>
+          <td>Discriminar suelo desnudo vs. cubierto; composición mineral de la superficie</td>
+          <td>Útil para detectar parcelas en preparación o barbecho. Complementa los índices de vegetación para una clasificación completa del ciclo agrícola.</td>
+        </tr>
+        <tr>
+          <td><code>SAVI</code></td>
+          <td>(B8−B4)/(B8+B4+0.5)×1.5</td>
+          <td>10 m</td>
+          <td>Ajuste por brillo del suelo; valor estándar L=0.5</td>
+          <td>Venancio et al. (2019) usan SAVI como base para pronóstico de rendimiento de maíz a nivel de finca en Brasil con el enfoque FAO-66.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="subsection-title">5.2 Datos Radar SAR (Sentinel-1)</h3>
+  <p><strong>Fuente:</strong> Sentinel-1, radar SAR banda C, resolución 10 m, revisita 6-12 días. Penetra nubes, ventaja crítica para Cundinamarca con alta nubosidad.</p>
+
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr><th>Feature</th><th>Tipo</th><th>Propósito</th><th>Justificación Estado del Arte</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>VV_backscatter</code></td>
+          <td>dB (retrodispersión VV)</td>
+          <td>Humedad del suelo superficial; estructura de la vegetación</td>
+          <td>Khabbazan et al. (2019) demuestran el uso de Sentinel-1 para monitoreo de cultivos en Holanda. Van Tricht et al. (2018) muestran que la combinación sinérgica de S1+S2 mejora la clasificación de cultivos respecto a usar uno solo.</td>
+        </tr>
+        <tr>
+          <td><code>VH_backscatter</code></td>
+          <td>dB (retrodispersión VH)</td>
+          <td>Sensible a la biomasa vegetal; permite diferenciar etapas de crecimiento</td>
+          <td>La polarización cruzada VH es más sensible a la estructura volumétrica de la vegetación que VV. Blickensdörfer et al. (2022) combinan series temporales de S1+S2+Landsat para mapeo de tipos de cultivo en Alemania.</td>
+        </tr>
+        <tr>
+          <td><code>ratio_VH_VV</code></td>
+          <td>dB</td>
+          <td>Ratio de polarización; discrimina tipos de cobertura vegetal</td>
+          <td>Feature derivado que normaliza efectos de humedad del suelo, resaltando la contribución de la vegetación al retorno radar.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <p><strong>Temporalidad de los datos satelitales:</strong> Los índices espectrales se calculan como series temporales (mínimo, máximo, media, percentiles) sobre ventanas de tiempo alineadas con los ciclos de siembra semestrales de Cundinamarca. Iqbal et al. (2023) procesan ~30 timestamps por campo, generando matrices de 30×15 features por parcela. Este enfoque multitemporal es esencial para capturar la fenología de los cultivos.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════ 6. TOPOGRAFICAS ═══════════════════════ -->
+<section class="content-section" id="sec6">
+  <div class="category-banner topo">
+    <div class="cat-icon">⛰</div>
+    <div class="cat-text">
+      <h3>Familia 4 — Variables Topográficas (Relieve)</h3>
+      <p>Derivadas del Copernicus DEM GLO-30 (30 m de resolución)</p>
+    </div>
+  </div>
+
+  <p class="lead">La topografía influye directamente en drenaje, exposición solar, riesgo de heladas y susceptibilidad a encharcamientos. En Cundinamarca, con rangos altitudinales desde los ~200 m en el valle del Magdalena hasta más de 3.500 m en páramos, las variables topográficas son determinantes para zonificar pisos térmicos y microclimas.</p>
+
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr><th>Feature</th><th>Método de Cálculo</th><th>Unidad</th><th>Propósito</th><th>Justificación Estado del Arte</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>elevacion</code></td>
+          <td>DEM directo</td>
+          <td>m.s.n.m.</td>
+          <td>Determinar piso térmico; proxy de temperatura (gradiente adiabático ~6°C/1000m); restricción de altitud para cada cultivo</td>
+          <td>Agrawal et al. (2023) incluyen elevación en AHP con peso de 2.02%. Emmanuel N. et al. (2024) proponen «Altitude-Adjusted Climate Metrics» como ingeniería de features. En Cundinamarca este feature es particularmente discriminante dada la alta variabilidad altitudinal.</td>
+        </tr>
+        <tr>
+          <td><code>pendiente</code></td>
+          <td>Operador de Horn 3×3</td>
+          <td>%</td>
+          <td>Susceptibilidad a erosión; viabilidad de mecanización; drenaje superficial</td>
+          <td>Agrawal et al. (2023) le asignan 2.85-2.90% de peso. Pendientes >8% limitan cultivos mecanizados; >25% se recomiendan solo para forestal. El mapa IGAC de Vocación de Uso incluye pendiente como criterio primario.</td>
+        </tr>
+        <tr>
+          <td><code>aspecto</code></td>
+          <td>arctan2 de gradientes</td>
+          <td>° (0=Norte, sentido horario)</td>
+          <td>Orientación solar; laderas N vs. S tienen diferente radiación incidente en zonas tropicales de montaña</td>
+          <td>Determina exposición a vientos dominantes y radiación solar directa. En la evaluación de aptitud FAO se incluye el aspecto como factor secundario para cultivos sensibles a la insolación.</td>
+        </tr>
+        <tr>
+          <td><code>curvatura</code></td>
+          <td>Segunda derivada del DEM</td>
+          <td>Adimensional (+cóncavo, −convexo)</td>
+          <td>Zonas cóncavas acumulan agua y sedimentos; convexas drenan y erosionan</td>
+          <td>Complementa la pendiente para caracterizar la forma del terreno. Relevante para identificar zonas de encharcamiento (aptas para arroz) vs. zonas bien drenadas (aptas para papa).</td>
+        </tr>
+        <tr>
+          <td><code>TWI</code></td>
+          <td>ln(acumulación_flujo / tan(β))</td>
+          <td>Adimensional</td>
+          <td>Índice Topográfico de Humedad; predice saturación potencial del suelo basándose en la posición topográfica</td>
+          <td>Integra pendiente y área de drenaje aguas arriba. Valores altos indican zonas húmedas donde se acumula agua, útil para discriminar aptitud de cultivos inundables vs. de secano. Calculado con pysheds D8.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════ 7. FEATURE ENGINEERING ═══════════════════════ -->
+<section class="content-section" id="sec7">
+  <div class="category-banner engineered">
+    <div class="cat-icon">⚙️</div>
+    <div class="cat-text">
+      <h3>Familia 5 — Variables Derivadas e Ingeniería de Features</h3>
+      <p>Features compuestos y transformaciones que incrementan la capacidad predictiva del modelo</p>
+    </div>
+  </div>
+
+  <p class="lead">Emmanuel N. et al. (2024) demuestran que la ingeniería de features específica del dominio agrícola mejora significativamente la generalización del modelo. Se proponen tres tipos de variables derivadas: índices compuestos, métricas ajustadas por altitud, y estadísticos temporales.</p>
+
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr><th>Feature</th><th>Cálculo</th><th>Propósito</th><th>Justificación Estado del Arte</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>indice_fertilidad_suelo</code></td>
+          <td>Compuesto ponderado de N, P, K, pH, CIC, CO</td>
+          <td>Indicador sintético de aptitud química del suelo</td>
+          <td>Emmanuel N. et al. (2024) proponen un «Soil Fertility Index» como feature engineering derivado de N, P y K. Agrawal et al. (2023) formalizan los pesos óptimos para cada parámetro mediante AHP.</td>
+        </tr>
+        <tr>
+          <td><code>temp_ajustada_altitud</code></td>
+          <td>temp_estacion − (elevacion − altitud_estacion) × 0.006</td>
+          <td>Corregir temperatura de estación al píxel real usando gradiente adiabático</td>
+          <td>Emmanuel N. et al. (2024) incluyen «Altitude-Adjusted Climate Metrics» como variables que mejoran la generalización en zonas agroecológicas diversas. Crítico en Cundinamarca por la variabilidad altitudinal.</td>
+        </tr>
+        <tr>
+          <td><code>humedad_ajustada_altitud</code></td>
+          <td>Corrección similar para humedad relativa</td>
+          <td>Mejorar la representatividad espacial de datos de estaciones puntuales</td>
+          <td>La humedad relativa varía con la altitud y la temperatura. Su ajuste es complementario a la corrección térmica.</td>
+        </tr>
+        <tr>
+          <td><code>ndvi_max_semestre</code></td>
+          <td>max(NDVI) por semestre de cultivo</td>
+          <td>Máximo vigor vegetativo alcanzado; proxy de producción de biomasa potencial</td>
+          <td>Iqbal et al. (2023) procesan series temporales de índices por campo. El máximo de NDVI corresponde al pico de la temporada de crecimiento.</td>
+        </tr>
+        <tr>
+          <td><code>ndvi_integral_semestre</code></td>
+          <td>∫NDVI dt (área bajo la curva temporal)</td>
+          <td>Acumulación total de productividad primaria durante el ciclo; más robusto que un valor puntual</td>
+          <td>Kern et al. (2018) usan modelado estadístico de rendimiento en Europa Central combinando datos climáticos e índices de vegetación temporales para predicción.</td>
+        </tr>
+        <tr>
+          <td><code>anomalia_precip</code></td>
+          <td>(precip_actual − normal_1961_2020) / σ</td>
+          <td>Detectar años atípicos (sequía/exceso); informar sobre variabilidad climática</td>
+          <td>CHIRPS permite calcular anomalías respecto a la media histórica. Hasan et al. (2023) y Mohan et al. (2024) integran variabilidad climática para mejorar robustez del modelo.</td>
+        </tr>
+        <tr>
+          <td><code>indice_aridez</code></td>
+          <td>precip_anual / evapotranspiracion_potencial</td>
+          <td>Balance hídrico simplificado; clasifica clima desde hiperárido hasta perhúmedo</td>
+          <td>Jeong et al. (2016) incluyen evapotranspiración como predictor. El índice de aridez integra oferta (precipitación) y demanda (evaporación) hídrica en una sola métrica.</td>
+        </tr>
+        <tr>
+          <td><code>piso_termico</code></td>
+          <td>Clasificación por elevación: cálido (<1000m), templado (1000-2000m), frío (2000-3000m), páramo (>3000m)</td>
+          <td>Variable categórica que resume el régimen térmico; facilita interpretabilidad del modelo</td>
+          <td>Clasificación tradicional colombiana que agrupa cultivos viables por rango altitudinal. Complementa la elevación numérica con conocimiento agronómico local.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════ 8. TARGET ═══════════════════════ -->
+<section class="content-section" id="sec8">
+  <div class="category-banner target">
+    <div class="cat-icon">🎯</div>
+    <div class="cat-text">
+      <h3>Variable Objetivo (Target) — Etiquetado</h3>
+      <p>Evaluaciones Agropecuarias Municipales (EVA), Monitoreo Satelital UPRA y Zonificaciones de Aptitud SIPRA</p>
+    </div>
+  </div>
+
+  <p class="lead">Las etiquetas de entrenamiento constituyen el componente más crítico del aprendizaje supervisado. El sistema utiliza tres fuentes complementarias de diferente resolución espacial, que se combinan para construir una variable objetivo robusta.</p>
+
+  <h3 class="subsection-title">8.1 Evaluaciones Agropecuarias Municipales (EVA)</h3>
+  <p><strong>Fuente:</strong> UPRA/MADR — dataset 2pnw-mmge en datos.gov.co. Series anuales y semestrales desde 2007 para los 1.104 municipios de Colombia.</p>
+
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr><th>Variable</th><th>Tipo</th><th>Propósito como Target</th><th>Justificación</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>cultivo_predominante</code></td>
+          <td>Categórico multiclase</td>
+          <td>Clase principal del modelo: ¿qué cultivo se recomienda para esta parcela?</td>
+          <td>Hasan et al. (2023) proponen un sistema de recomendación que predice producción por cultivo y recomienda el de mayor rendimiento esperado. La EVA provee las series históricas de éxito/fracaso por municipio-cultivo.</td>
+        </tr>
+        <tr>
+          <td><code>rendimiento_tha</code></td>
+          <td>Numérico continuo (t/ha)</td>
+          <td>Proxy de éxito agrícola; permite rankear cultivos por productividad esperada</td>
+          <td>Mohan et al. (2024) y Jeong et al. (2016) usan rendimiento como variable dependiente principal. Rendimientos por encima de umbrales indican aptitud del municipio para ese cultivo.</td>
+        </tr>
+        <tr>
+          <td><code>area_sembrada</code></td>
+          <td>Numérico (ha)</td>
+          <td>Indicador de adopción histórica; los agricultores siembran lo que funciona</td>
+          <td>La persistencia temporal del área sembrada valida la aptitud agroecológica revelada (preferencia revelada de los agricultores).</td>
+        </tr>
+        <tr>
+          <td><code>tipo_cultivo</code></td>
+          <td>Binario (transitorio / permanente)</td>
+          <td>Estratificar el modelo según ciclo productivo</td>
+          <td>Cultivos transitorios y permanentes tienen dinámicas completamente diferentes de respuesta a variables ambientales y requieren ventanas temporales distintas de análisis.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="subsection-title">8.2 Monitoreo Satelital de Cultivos (UPRA)</h3>
+  <p><strong>Fuente:</strong> UPRA — geoservicios MonitoreoCultivos. Polígonos georreferenciados de áreas productivas reales (nivel de parcela) desde 2021, para papa, maíz, arroz, cacao, plátano, pastos y caña panelera.</p>
+  <p>Estos polígonos representan etiquetas de alta precisión espacial: se conoce exactamente dónde se sembró cada cultivo en un año específico. Son el complemento ideal para las EVA municipales, al operar a nivel de parcela.</p>
+
+  <h3 class="subsection-title">8.3 Zonificaciones de Aptitud (SIPRA)</h3>
+  <p><strong>Fuente:</strong> UPRA/SIPRA — más de 65 capas nacionales de zonificación a escala 1:100.000 para diferentes cultivos. Clasifican el territorio en: Aptitud Alta, Media, Baja, Muy Baja, No Apta y Exclusiones Legales.</p>
+  <p>Estas zonificaciones actúan como etiquetas complementarias y como benchmark de validación del modelo. Si el modelo recomienda un cultivo en una zona clasificada como «No Apta» por el SIPRA, esto permite identificar posibles errores o discrepancias que requieren revisión.</p>
+</section>
+
+<!-- ═══════════════════════ 9. ESTRUCTURA CONSOLIDADA ═══════════════════════ -->
+<section class="content-section" id="sec9">
+  <h2 class="section-title">9. Estructura Consolidada de la Vista Minable</h2>
+  <p class="lead">La siguiente tabla presenta la estructura completa de la vista minable, con cada feature clasificado por familia, nombre técnico, tipo de dato, fuente y categoría de importancia según el estado del arte.</p>
+
+  <div class="feature-table-wrapper">
+    <table class="feature-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Familia</th>
+          <th>Feature</th>
+          <th>Tipo</th>
+          <th>Fuente</th>
+          <th>Importancia</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- CLIMATICAS -->
+        <tr><td>1</td><td><span class="badge badge-climate">Clima</span></td><td><code>temp_media_anual</code></td><td>Float</td><td>IDEAM</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>2</td><td><span class="badge badge-climate">Clima</span></td><td><code>temp_max_media</code></td><td>Float</td><td>IDEAM</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>3</td><td><span class="badge badge-climate">Clima</span></td><td><code>temp_min_media</code></td><td>Float</td><td>IDEAM</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>4</td><td><span class="badge badge-climate">Clima</span></td><td><code>amplitud_termica</code></td><td>Float</td><td>Derivada</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>5</td><td><span class="badge badge-climate">Clima</span></td><td><code>precip_acum_anual</code></td><td>Float</td><td>IDEAM + CHIRPS</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>6–17</td><td><span class="badge badge-climate">Clima</span></td><td><code>precip_mensual_[01-12]</code></td><td>Float ×12</td><td>IDEAM + CHIRPS</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>18</td><td><span class="badge badge-climate">Clima</span></td><td><code>dias_con_lluvia</code></td><td>Int</td><td>IDEAM Normales</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>19–20</td><td><span class="badge badge-climate">Clima</span></td><td><code>precip_semestre_[1|2]</code></td><td>Float ×2</td><td>IDEAM + CHIRPS</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>21</td><td><span class="badge badge-climate">Clima</span></td><td><code>humedad_media_anual</code></td><td>Float</td><td>IDEAM</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>22–33</td><td><span class="badge badge-climate">Clima</span></td><td><code>humedad_media_mensual_[01-12]</code></td><td>Float ×12</td><td>IDEAM</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>34</td><td><span class="badge badge-climate">Clima</span></td><td><code>brillo_solar_mensual</code></td><td>Float</td><td>IDEAM Normales</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>35</td><td><span class="badge badge-climate">Clima</span></td><td><code>evaporacion_mensual</code></td><td>Float</td><td>IDEAM Normales</td><td>⬤⬤○ Media</td></tr>
+        <!-- EDAFOLOGICAS -->
+        <tr><td>36</td><td><span class="badge badge-soil">Suelo</span></td><td><code>ph_suelo</code></td><td>Float</td><td>IGAC + SoilGrids</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>37</td><td><span class="badge badge-soil">Suelo</span></td><td><code>saturacion_aluminio</code></td><td>Float</td><td>IGAC</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>38</td><td><span class="badge badge-soil">Suelo</span></td><td><code>saturacion_bases</code></td><td>Float</td><td>IGAC</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>39</td><td><span class="badge badge-soil">Suelo</span></td><td><code>fosforo_disponible</code></td><td>Float</td><td>IGAC + SoilGrids</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>40</td><td><span class="badge badge-soil">Suelo</span></td><td><code>potasio_intercambiable</code></td><td>Float</td><td>IGAC + SoilGrids</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>41</td><td><span class="badge badge-soil">Suelo</span></td><td><code>fertilidad_natural</code></td><td>Categórico</td><td>IGAC</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>42–44</td><td><span class="badge badge-soil">Suelo</span></td><td><code>arcilla / arena / limo</code></td><td>Float ×3</td><td>SoilGrids</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>45</td><td><span class="badge badge-soil">Suelo</span></td><td><code>densidad_aparente</code></td><td>Float</td><td>SoilGrids</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>46</td><td><span class="badge badge-soil">Suelo</span></td><td><code>carbono_organico</code></td><td>Float</td><td>SoilGrids + IGAC COS</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>47</td><td><span class="badge badge-soil">Suelo</span></td><td><code>nitrogeno_total</code></td><td>Float</td><td>SoilGrids</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>48</td><td><span class="badge badge-soil">Suelo</span></td><td><code>CIC</code></td><td>Float</td><td>SoilGrids</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>49</td><td><span class="badge badge-soil">Suelo</span></td><td><code>stock_carbono_0_30</code></td><td>Float</td><td>SoilGrids + IGAC</td><td>⬤○○ Baja</td></tr>
+        <tr><td>50</td><td><span class="badge badge-soil">Suelo</span></td><td><code>vocacion_uso</code></td><td>Categórico</td><td>IGAC</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>51</td><td><span class="badge badge-soil">Suelo</span></td><td><code>suelo_negro_categoria</code></td><td>Categórico</td><td>IGAC/FAO</td><td>⬤○○ Baja</td></tr>
+        <!-- SATELITALES -->
+        <tr><td>52</td><td><span class="badge badge-satellite">Satélite</span></td><td><code>NDVI</code> (stats temporales)</td><td>Float</td><td>Sentinel-2</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>53</td><td><span class="badge badge-satellite">Satélite</span></td><td><code>GNDVI</code> (stats temporales)</td><td>Float</td><td>Sentinel-2</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>54</td><td><span class="badge badge-satellite">Satélite</span></td><td><code>EVI</code> (stats temporales)</td><td>Float</td><td>Sentinel-2</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>55</td><td><span class="badge badge-satellite">Satélite</span></td><td><code>NDWI</code> (stats temporales)</td><td>Float</td><td>Sentinel-2</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>56</td><td><span class="badge badge-satellite">Satélite</span></td><td><code>MSAVI</code> (stats temporales)</td><td>Float</td><td>Sentinel-2</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>57</td><td><span class="badge badge-satellite">Satélite</span></td><td><code>BSI</code> (stats temporales)</td><td>Float</td><td>Sentinel-2</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>58</td><td><span class="badge badge-satellite">Satélite</span></td><td><code>SAVI</code> (stats temporales)</td><td>Float</td><td>Sentinel-2</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>59–61</td><td><span class="badge badge-satellite">Satélite</span></td><td><code>VV / VH / ratio_VH_VV</code></td><td>Float ×3</td><td>Sentinel-1</td><td>⬤⬤○ Media</td></tr>
+        <!-- TOPOGRAFICAS -->
+        <tr><td>62</td><td><span class="badge badge-topo">Topo</span></td><td><code>elevacion</code></td><td>Float</td><td>Copernicus DEM</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>63</td><td><span class="badge badge-topo">Topo</span></td><td><code>pendiente</code></td><td>Float</td><td>Copernicus DEM</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>64</td><td><span class="badge badge-topo">Topo</span></td><td><code>aspecto</code></td><td>Float</td><td>Copernicus DEM</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>65</td><td><span class="badge badge-topo">Topo</span></td><td><code>curvatura</code></td><td>Float</td><td>Copernicus DEM</td><td>⬤○○ Baja</td></tr>
+        <tr><td>66</td><td><span class="badge badge-topo">Topo</span></td><td><code>TWI</code></td><td>Float</td><td>Copernicus DEM</td><td>⬤⬤○ Media</td></tr>
+        <!-- DERIVADAS -->
+        <tr><td>67</td><td><span class="badge badge-engineered">Derivada</span></td><td><code>indice_fertilidad_suelo</code></td><td>Float</td><td>Compuesto</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>68</td><td><span class="badge badge-engineered">Derivada</span></td><td><code>temp_ajustada_altitud</code></td><td>Float</td><td>Compuesto</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>69</td><td><span class="badge badge-engineered">Derivada</span></td><td><code>humedad_ajustada_altitud</code></td><td>Float</td><td>Compuesto</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>70</td><td><span class="badge badge-engineered">Derivada</span></td><td><code>ndvi_max_semestre</code></td><td>Float</td><td>Derivada S2</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>71</td><td><span class="badge badge-engineered">Derivada</span></td><td><code>ndvi_integral_semestre</code></td><td>Float</td><td>Derivada S2</td><td>⬤⬤⬤ Alta</td></tr>
+        <tr><td>72</td><td><span class="badge badge-engineered">Derivada</span></td><td><code>anomalia_precip</code></td><td>Float</td><td>CHIRPS + Normales</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>73</td><td><span class="badge badge-engineered">Derivada</span></td><td><code>indice_aridez</code></td><td>Float</td><td>Compuesto</td><td>⬤⬤○ Media</td></tr>
+        <tr><td>74</td><td><span class="badge badge-engineered">Derivada</span></td><td><code>piso_termico</code></td><td>Categórico</td><td>Derivada DEM</td><td>⬤⬤⬤ Alta</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <p><strong>Número total de features base:</strong> ~74 columnas (expandible a ~120+ cuando se incluyen los 12 valores mensuales de precipitación y humedad, y los estadísticos temporales por índice espectral: media, máximo, mínimo, percentil 25/75, desviación estándar). La selección final de features se realizará mediante análisis de importancia de variables (Random Forest feature importance, SHAP values) y eliminación de features altamente correlacionados.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════ 10. JUSTIFICACION INTEGRADA ═══════════════════════ -->
+<section class="content-section" id="sec10">
+  <h2 class="section-title">10. Justificación Integrada desde el Estado del Arte</h2>
+
+  <p class="lead">La selección de variables se fundamenta en un análisis cruzado de la literatura reciente en sistemas de recomendación de cultivos y predicción de rendimiento. A continuación se sintetizan los hallazgos principales que respaldan la arquitectura propuesta.</p>
+
+  <h3 class="subsection-title">10.1 Consenso sobre Features Críticos</h3>
+  <p>Existe un consenso notable en la literatura sobre cuáles variables son las más determinantes para la recomendación de cultivos. Los análisis de importancia de features —mediante Random Forest, SHAP, LIME y ELI5— coinciden en que el núcleo mínimo de un sistema de recomendación debe incluir:</p>
+  <p>Temperatura, precipitación (rainfall), humedad, pH del suelo, nitrógeno, fósforo y potasio. Este conjunto de siete variables aparece como base en prácticamente todos los estudios analizados: Hamza et al. (2025) con su modelo RFXG que alcanza resultados superiores combinando RF y XGBoost; Shams et al. (2024) con su enfoque XAI-CROP; Kara et al. (2024) con AgroXAI; Cartolano et al. (2024) con su análisis comparativo SHAP/LIME; y el sistema IoT de Sharafat et al. (2025) con TabNet, CNN-BiLSTM y Stacking.</p>
+
+  <h3 class="subsection-title">10.2 Valor Añadido de Datos Espaciales</h3>
+  <p>El proyecto propuesto va más allá de este núcleo mínimo al integrar datos de percepción remota y topografía, lo cual se justifica por múltiples estudios. Iqbal et al. (2023) demuestran que la combinación de bandas espectrales e índices de vegetación de Sentinel-2 en series temporales permite clasificar cultivos con alta precisión. Bolívar-Santamaría & Reu (2021) validan el uso de Sentinel-2 específicamente en los Andes colombianos para detectar y caracterizar sistemas agroforestales. Blickensdörfer et al. (2022) y Van Tricht et al. (2018) confirman que la fusión de datos ópticos (Sentinel-2) y radar (Sentinel-1) supera el uso individual de cualquiera de las dos fuentes.</p>
+
+  <h3 class="subsection-title">10.3 Relevancia de la Topografía en Zonas de Montaña</h3>
+  <p>La inclusión de variables topográficas es particularmente pertinente para Cundinamarca, que abarca desde los valles cálidos del Magdalena hasta el páramo. Agrawal et al. (2023) incluyen pendiente y elevación en su evaluación AHP de aptitud de tierras. El mapa de Vocación de Uso del IGAC integra la pendiente como uno de sus criterios principales de clasificación. Emmanuel N. et al. (2024) proponen ajustar métricas climáticas por altitud como estrategia de feature engineering que mejora la generalización del modelo en zonas agroecológicas diversas.</p>
+
+  <h3 class="subsection-title">10.4 Explainabilidad y Confianza</h3>
+  <p>La transparencia del modelo es fundamental para la adopción por parte de los agricultores. Múltiples estudios recientes integran técnicas XAI: Mohan et al. (2024) utilizan SHAP y LIME para LightGBM; Kara et al. (2024) proponen AgroXAI con SHAP, LIME, ELI5 y explicaciones contrafactuales; Cartolano et al. (2024) realizan un análisis comparativo detallado de SHAP y LIME en agricultura. La estructura de la vista minable aquí propuesta facilita la aplicación de estas técnicas, ya que cada feature tiene un significado agronómico interpretable que puede comunicarse al usuario final.</p>
+
+  <h3 class="subsection-title">10.5 Diferenciación del Proyecto</h3>
+  <p>Mientras que la mayoría de los estudios revisados operan con datasets tabulares genéricos (como el dataset Kaggle de 2.200 registros con 7 features usado por Hamza et al. 2025, Cartolano et al. 2024 y Kara et al. 2024), el presente proyecto se diferencia en: la resolución espacial a nivel de parcela (10 m), la integración de datos multifuente georeferenciados, el uso de fuentes de datos oficiales colombianas (IDEAM, IGAC, UPRA), la inclusión de percepción remota multitemporal, y el respaldo en zonificaciones de aptitud ya validadas por la UPRA como benchmark de validación.</p>
+</section>
+
+<!-- ═══════════════════════ 11. REFERENCIAS ═══════════════════════ -->
+<section class="content-section" id="sec11">
+  <h2 class="section-title">11. Referencias Bibliográficas</h2>
+  <p>Agrawal, N., Govil, H., & Kumar, T. (2023). Agricultural land suitability classification and crop suggestion using GIS and AHP. <em>Environment, Development and Sustainability</em>, 25, 13695–13726.</p>
+  <p>Blickensdörfer, L., et al. (2022). Mapping of crop types and crop sequences with combined time series of Sentinel-1, Sentinel-2 and Landsat 8 data for Germany. <em>Remote Sensing of Environment</em>, 269, 112831.</p>
+  <p>Bolívar-Santamaría, S. & Reu, B. (2021). Detection and characterization of agroforestry systems in the Colombian Andes using Sentinel-2 imagery. <em>Agroforestry Systems</em>, 95, 499–514.</p>
+  <p>Cartolano, A., Cuzzocrea, A., & Pilato, G. (2024). Analyzing and assessing explainable AI models for smart agriculture environments. <em>Multimedia Tools and Applications</em>, 83, 37225–37246.</p>
+  <p>Emmanuel N., et al. (2024). Crop Recommendation Model Using Machine Learning. <em>Int. J. of Latest Scientific Research and Publications</em>, 709–714.</p>
+  <p>Hamza, A., et al. (2025). Soil type crop recommendation using hybrid ML model. <em>Scientific Reports</em>, 15, 8560.</p>
+  <p>Hasan, M., et al. (2023). Ensemble machine learning-based recommendation system for effective prediction of suitable agricultural crop cultivation. <em>Frontiers in Plant Science</em>, 14, 1234555.</p>
+  <p>Iqbal, N., et al. (2023). Crop identification using multi-temporal Sentinel-2 data and machine learning. <em>Sensors</em>, 23, 1779.</p>
+  <p>Jeong, J. H., et al. (2016). Random Forests for Global and Regional Crop Yield Predictions. <em>PLOS ONE</em>, 11(6), e0156571.</p>
+  <p>Kara, M., et al. (2024). AgroXAI: An Edge Computing-Based Explainable Crop Recommendation System. <em>Preprint arXiv</em>, 2412.16196.</p>
+  <p>Kern, A., et al. (2018). Statistical modelling of crop yield in Central Europe using climate data and remote sensing vegetation indices. <em>Agricultural and Forest Meteorology</em>, 260–261, 300–320.</p>
+  <p>Mohan, P., et al. (2024). AI-driven climate change impact prediction on agricultural yields using XAI. <em>Frontiers in Plant Science</em>, 15, 1451607.</p>
+  <p>Patel, R., et al. (2025). Crop Recommendation with XAI (LIME). <em>Scientific Reports</em>, 15, 25498.</p>
+  <p>Sharafat, M. D. S., et al. (2025). Real-time IoT-integrated crop recommendation using DL and XAI. <em>Smart Agricultural Technology</em>, 12, 101263.</p>
+  <p>Shams, M. Y., Gamel, S. A. & Talaat, F. M. (2024). Enhancing crop recommendation systems with explainable AI. <em>Neural Computing and Applications</em>, 36, 5695–5714.</p>
+  <p>Van Tricht, K., et al. (2018). Synergistic use of radar Sentinel-1 and optical Sentinel-2 imagery for crop mapping. <em>Remote Sensing</em>, 10, 1642.</p>
+  <p>Venancio, L. P., et al. (2019). Forecasting corn yield at the farm level based on FAO-66 and SAVI. <em>Agricultural Water Management</em>, 225, 105779.</p>
+</section>
+
+<!-- ═══════════════════════ FOOTER ═══════════════════════ -->
+<footer class="doc-footer">
+  <p>Documento generado para el proyecto «¿Qué Sembrar?» — Plataforma de Planificación Agrícola para Cundinamarca, Colombia, 2026.</p>
+</footer>
+
+</div><!-- .container -->
+</body>
+</html>
