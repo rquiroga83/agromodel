@@ -53,6 +53,18 @@ for year in range(YEAR_START, YEAR_END + 1):
     SEMESTRES.append({'label': f'{year}A', 'start': f'{year}-01-01', 'end': f'{year}-06-30'})
     SEMESTRES.append({'label': f'{year}B', 'start': f'{year}-07-01', 'end': f'{year}-12-31'})
 
+# Meses del período de análisis
+import calendar
+MESES = []
+for year in range(YEAR_START, YEAR_END + 1):
+    for mes in range(1, 13):
+        ultimo_dia = calendar.monthrange(year, mes)[1]
+        MESES.append({
+            'label': f'{year}_{mes:02d}',
+            'start': f'{year}-{mes:02d}-01',
+            'end':   f'{year}-{mes:02d}-{ultimo_dia:02d}',
+        })
+
 # ──────────────────────────────────────────────────────────────
 # CREDENCIALES COPERNICUS DATA SPACE (CDSE)
 # Leídas desde extractores/.env — nunca hardcodear aquí.

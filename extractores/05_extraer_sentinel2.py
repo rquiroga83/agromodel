@@ -1,14 +1,14 @@
 """
 05_extraer_sentinel2.py
 ═══════════════════════════════════════════════════════════════
-Descarga índices espectrales Sentinel-2 L2A por semestre (2019-2024).
+Descarga índices espectrales Sentinel-2 L2A por mes.
 Fuente: Copernicus Data Space (CDSE) via SentinelHub API.
 
 7 índices: NDVI, GNDVI, EVI, NDWI, MSAVI, BSI, SAVI
-Compositing: mediana del semestre (reduce nubes)
-12 semestres × 1 GeoTIFF de 7 bandas = 12 archivos
+Compositing: mediana mensual libre de nubes (filtro SCL)
+72 meses (2020-2025) × 1 GeoTIFF de 7 bandas = 72 archivos
 
-Credenciales: mismas del script sentinelhub-py.py original.
+Reanudación automática: saltea archivos ya descargados.
 
 pip install sentinelhub numpy rasterio
 """
@@ -20,7 +20,7 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import (
     CDSE_CLIENT_ID, CDSE_CLIENT_SECRET, CDSE_BASE_URL, CDSE_TOKEN_URL,
-    BBOX_WGS84, SEMESTRES, DIRS, crear_directorios
+    BBOX_WGS84, MESES, DIRS, crear_directorios
 )
 
 from sentinelhub import (
@@ -120,17 +120,17 @@ function evaluatePixel(samples) {
 BAND_NAMES = ['NDVI', 'GNDVI', 'EVI', 'NDWI', 'MSAVI', 'BSI', 'SAVI']
 
 
-def descargar_semestre(semestre):
-    """Descarga un composite semestral de 7 índices espectrales."""
+def descargar_mes(mes):
+    """Descarga un composite mensual de 7 índices espectrales."""
     out_dir = DIRS['sat_sentinel2']
-    out_file = os.path.join(out_dir, f"s2_indices_{semestre['label']}.tif")
+    out_file = os.path.join(out_dir, f"s2_indices_{mes['label']}.tif")
 
     if os.path.exists(out_file):
-        print(f"  Ya existe: {out_file}")
+        print(f"  Ya existe: {os.path.basename(out_file)}")
         return
 
-    print(f"  Descargando Sentinel-2 semestre {semestre['label']} "
-          f"({semestre['start']} a {semestre['end']})...")
+    print(f"  Descargando Sentinel-2 {mes['label']} "
+          f"({mes['start']} → {mes['end']})...", end=' ', flush=True)
 
     try:
         request = SentinelHubRequest(
@@ -138,7 +138,7 @@ def descargar_semestre(semestre):
             input_data=[
                 SentinelHubRequest.input_data(
                     data_collection=S2_CDSE,
-                    time_interval=(semestre['start'], semestre['end']),
+                    time_interval=(mes['start'], mes['end']),
                 )
             ],
             responses=[SentinelHubRequest.output_response('default', MimeType.TIFF)],
@@ -153,7 +153,6 @@ def descargar_semestre(semestre):
         if arr.ndim == 2:
             arr = arr[np.newaxis, :, :]
 
-        # Guardar como GeoTIFF multibanda
         height, width = arr.shape[0], arr.shape[1]
         n_bands = arr.shape[2] if arr.ndim == 3 else 1
         transform = from_bounds(
@@ -176,24 +175,24 @@ def descargar_semestre(semestre):
                 dst.write(band_data.astype(np.float32), b + 1)
                 dst.update_tags(b + 1, name=BAND_NAMES[b] if b < len(BAND_NAMES) else f'band_{b+1}')
 
-        print(f"  -> Guardado: {out_file} ({width}×{height}, {n_bands} bandas)")
+        print(f"OK ({width}×{height}, {n_bands} bandas)")
 
     except Exception as e:
-        print(f"  ERROR en semestre {semestre['label']}: {e}")
+        print(f"ERROR: {e}")
 
 
 def main():
     crear_directorios()
 
     print("="*70)
-    print("DESCARGA SENTINEL-2 ÍNDICES ESPECTRALES (2019-2024)")
+    print("DESCARGA SENTINEL-2 ÍNDICES ESPECTRALES — COMPOSITES MENSUALES")
     print(f"Índices: {', '.join(BAND_NAMES)}")
-    print(f"Compositing: mediana semestral libre de nubes (SCL filter)")
-    print(f"Semestres: {len(SEMESTRES)} ({SEMESTRES[0]['label']} a {SEMESTRES[-1]['label']})")
+    print(f"Compositing: mediana mensual libre de nubes (SCL filter)")
+    print(f"Meses: {len(MESES)} ({MESES[0]['label']} a {MESES[-1]['label']})")
     print("="*70)
 
-    for sem in SEMESTRES:
-        descargar_semestre(sem)
+    for mes in MESES:
+        descargar_mes(mes)
 
     print("\n" + "="*70)
     print("DESCARGA SENTINEL-2 COMPLETADA")

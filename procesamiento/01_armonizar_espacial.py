@@ -37,7 +37,7 @@ import warnings
 import numpy as np
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'extractores'))
-from config import BBOX_WGS84, DIRS, SEMESTRES, crear_directorios
+from config import BBOX_WGS84, DIRS, YEAR_START, YEAR_END, crear_directorios
 
 # ══════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN ESPACIAL DEL PROYECTO
@@ -152,16 +152,20 @@ def reproyectar_raster(src_path, dst_path, resampling_method='bilinear', dtype=N
 # 1. ESTACIONES IDEAM — KRIGING + CORRECCIÓN ADIABÁTICA
 # ══════════════════════════════════════════════════════════════════
 
-def armonizar_ideam():
+def armonizar_ideam(variable=None):
     """
     Interpola estaciones IDEAM a ráster 10 m usando Kriging Ordinario.
 
     Variables: temperatura (con corrección adiabática), precipitación, humedad.
     Salida: un GeoTIFF por variable×semestre en processed/clima/ideam/
     Requiere: DEM armonizado para la corrección de temperatura por altitud.
+
+    Args:
+        variable: 'temperatura' | 'precipitacion' | 'humedad' | None (todas)
     """
     print("\n" + "="*70)
-    print("1. ESTACIONES IDEAM → KRIGING")
+    titulo = f"1. ESTACIONES IDEAM → KRIGING{f' ({variable.upper()})' if variable else ''}"
+    print(titulo)
     print("="*70)
 
     try:
@@ -177,21 +181,51 @@ def armonizar_ideam():
         print("  Instalar: pip install pykrige geopandas pandas rasterio pyproj")
         return
 
+    # ── Resolución de Kriging (intermedia) ────────────────────────
+    # Con 30-60 estaciones sobre 24,000 km² el radio de influencia es
+    # del orden de decenas de km. Hacer Kriging a 10 m crearía un grid
+    # de 476M píxeles × N_estaciones = cientos de GiB en RAM.
+    # Solución: Kriging a 1 km (grid de ~480 × 550 = 264K píxeles)
+    # luego resampling bilineal a 10 m.
+    RESOLUCION_KRIGING_M = 1000
+
     dst_transform, dst_width, dst_height, dst_crs = get_grid_cundinamarca()
     transformer = Transformer.from_crs('EPSG:4326', CRS_PROYECTO, always_xy=True)
 
-    # Crear coordenadas del grid destino (centros de píxel)
-    xs = np.arange(dst_width)  * RESOLUCION_M + dst_transform.c + RESOLUCION_M / 2
-    ys = np.arange(dst_height) * (-RESOLUCION_M) + dst_transform.f - RESOLUCION_M / 2
-    grid_x, grid_y = np.meshgrid(xs, ys)
+    # Grid de Kriging a 1 km
+    from rasterio.transform import from_bounds as _from_bounds
+    krig_west  = dst_transform.c
+    krig_north = dst_transform.f
+    krig_east  = krig_west  + dst_width  * RESOLUCION_M
+    krig_south = krig_north - dst_height * RESOLUCION_M
+    krig_width  = max(1, int((krig_east - krig_west)   / RESOLUCION_KRIGING_M))
+    krig_height = max(1, int((krig_north - krig_south) / RESOLUCION_KRIGING_M))
+    krig_transform = _from_bounds(krig_west, krig_south, krig_east, krig_north,
+                                   krig_width, krig_height)
 
-    # ── Cargar DEM armonizado si existe (para corrección adiabática) ──
+    xs_k = np.array([krig_transform.c + (i + 0.5) * RESOLUCION_KRIGING_M
+                     for i in range(krig_width)])
+    ys_k = np.array([krig_transform.f - (j + 0.5) * RESOLUCION_KRIGING_M
+                     for j in range(krig_height)])
+
+    print(f"  Grid Kriging: {krig_width}×{krig_height} px a {RESOLUCION_KRIGING_M} m "
+          f"→ bilineal a {RESOLUCION_M} m")
+
+    # ── Cargar DEM a resolución de Kriging (para corrección adiabática) ──
     dem_path = os.path.join(PROC_DIRS['dem'], 'dem_cundinamarca_10m.tif')
-    dem_grid = None
+    dem_krig = None
     if os.path.exists(dem_path):
+        from rasterio.warp import reproject as _reproject, Resampling as _Resampling
         with rasterio.open(dem_path) as src:
-            dem_grid = src.read(1).astype(np.float32)
-            dem_grid[dem_grid == src.nodata] = np.nan
+            dem_krig = np.empty((krig_height, krig_width), dtype=np.float32)
+            _reproject(
+                source=rasterio.band(src, 1),
+                destination=dem_krig,
+                src_transform=src.transform, src_crs=src.crs,
+                dst_transform=krig_transform, dst_crs=dst_crs,
+                resampling=_Resampling.bilinear,
+            )
+            dem_krig[dem_krig == NODATA_RASTER] = np.nan
         print("  DEM cargado para corrección adiabática de temperatura")
     else:
         print("  AVISO: DEM no encontrado, la temperatura NO tendrá corrección adiabática")
@@ -230,7 +264,13 @@ def armonizar_ideam():
         },
     }
 
-    for var_name, cfg in variables.items():
+    if variable is not None and variable not in variables:
+        print(f"  Variable '{variable}' no reconocida. Opciones: {list(variables)}")
+        return
+
+    items = [(variable, variables[variable])] if variable else list(variables.items())
+
+    for var_name, cfg in items:
         archivos = glob.glob(cfg['patron'])
         if not archivos:
             print(f"  [{var_name}] Sin archivos en {cfg['patron']}. Saltando.")
@@ -264,11 +304,17 @@ def armonizar_ideam():
         if cfg['col_alt'] in df_all.columns:
             df_all[cfg['col_alt']] = pd.to_numeric(df_all[cfg['col_alt']], errors='coerce')
 
-        # Procesar por semestre
-        for sem in SEMESTRES:
-            label   = sem['label']
-            t_start = pd.Timestamp(sem['start'])
-            t_end   = pd.Timestamp(sem['end'])
+        # Procesar por mes
+        periodos = [
+            (year, mes)
+            for year in range(YEAR_START, YEAR_END + 1)
+            for mes in range(1, 13)
+        ]
+
+        for year, mes in periodos:
+            label   = f"{year}_{mes:02d}"
+            t_start = pd.Timestamp(year=year, month=mes, day=1)
+            t_end   = t_start + pd.offsets.MonthEnd(0)
 
             out_file = os.path.join(PROC_DIRS['ideam'],
                                     f"{var_name}_{label}_kriging.tif")
@@ -276,7 +322,7 @@ def armonizar_ideam():
                 print(f"  [{var_name} {label}] Ya existe. Saltando.")
                 continue
 
-            # Filtrar semestre y agregar por estación (mediana)
+            # Filtrar mes y agregar por estación (mediana)
             mask = (df_all[cfg['col_fecha']] >= t_start) & \
                    (df_all[cfg['col_fecha']] <= t_end)
             df_sem = df_all[mask]
@@ -311,35 +357,79 @@ def armonizar_ideam():
                   end=' ', flush=True)
 
             try:
-                ok = OrdinaryKriging(
-                    x_est, y_est, z_est,
-                    variogram_model=cfg['variogram'],
-                    verbose=False,
-                    enable_plotting=False,
+                # Varianza cero (o casi) → el optimizador de scipy no puede ajustar el variograma.
+                # Ocurre en semestres secos donde la mayoría de estaciones reportan 0 mm.
+                _coef_variacion = np.std(z_est) / (np.abs(np.mean(z_est)) + 1e-9)
+                if np.std(z_est) < 1e-6 or _coef_variacion < 0.01:
+                    valor_constante = float(np.median(z_est))
+                    z_krig = np.full((krig_height, krig_width), valor_constante, dtype=np.float32)
+                    print(f"varianza≈0, ráster constante ({valor_constante:.3f})...",
+                          end=' ', flush=True)
+                else:
+                    # ── Paso 1: Kriging a 1 km (~264K píxeles, manejable en RAM) ──
+                    try:
+                        ok = OrdinaryKriging(
+                            x_est, y_est, z_est,
+                            variogram_model=cfg['variogram'],
+                            verbose=False,
+                            enable_plotting=False,
+                        )
+                        # ys_k invertido (N→S) para que el resultado sea top-down
+                        z_krig, _ = ok.execute('grid', xs_k, ys_k[::-1])
+                        z_krig = np.flipud(z_krig.data.astype(np.float32))
+                    except Exception as e_krig:
+                        if 'bound' in str(e_krig).lower() or 'variogram' in str(e_krig).lower():
+                            # Fallback: variograma no ajustable → ráster constante
+                            valor_constante = float(np.median(z_est))
+                            z_krig = np.full((krig_height, krig_width),
+                                            valor_constante, dtype=np.float32)
+                            print(f"variograma no ajustable, constante ({valor_constante:.3f})...",
+                                  end=' ', flush=True)
+                        else:
+                            raise
+
+                # Corrección adiabática a resolución de Kriging con DEM 1 km
+                if cfg['adiabático'] and dem_krig is not None:
+                    alt_col = cfg['col_alt']
+                    alt_vals = estaciones[alt_col].values if alt_col in estaciones.columns else np.array([0.0])
+                    alt_ref  = float(np.nanmedian(alt_vals))
+                    dem_valid = np.where(np.isnan(dem_krig), alt_ref, dem_krig)
+                    z_krig = z_krig - 0.006 * (dem_valid - alt_ref)
+
+                z_krig[np.isnan(z_krig)] = NODATA_RASTER
+
+                # ── Paso 2: Guardar a 1 km y luego resamplear bilineal a 10 m ──
+                from rasterio.warp import reproject as _reproject, Resampling as _Resampling
+
+                profile_krig = dict(
+                    driver='GTiff', dtype='float32', count=1,
+                    crs=dst_crs, transform=krig_transform,
+                    width=krig_width, height=krig_height,
+                    nodata=NODATA_RASTER, compress='deflate',
                 )
-                z_pred, z_var = ok.execute('grid', xs, ys[::-1])  # ys invertido (N→S)
-                z_pred = np.flipud(z_pred.data.astype(np.float32))
-
-                # Reaplicar corrección adiabática sobre el grid con DEM
-                if cfg['adiabático'] and dem_grid is not None:
-                    alt_ref = float(np.nanmedian(estaciones.get(cfg['col_alt'],
-                                                                 pd.Series([0])).values))
-                    dem_valid = np.where(np.isnan(dem_grid), alt_ref, dem_grid)
-                    z_pred = z_pred - 0.006 * (dem_valid - alt_ref)
-
-                z_pred = z_pred.astype(np.float32)
-                z_pred[np.isnan(z_pred)] = NODATA_RASTER
-
-                profile = dict(
+                profile_10m = dict(
                     driver='GTiff', dtype='float32', count=1,
                     crs=dst_crs, transform=dst_transform,
                     width=dst_width, height=dst_height,
                     nodata=NODATA_RASTER, compress='deflate',
                 )
+
                 os.makedirs(PROC_DIRS['ideam'], exist_ok=True)
-                with rasterio.open(out_file, 'w', **profile) as dst:
-                    dst.write(z_pred, 1)
-                print(f"guardado.")
+
+                # Resamplear directamente en memoria de 1 km → 10 m
+                z_10m = np.empty((dst_height, dst_width), dtype=np.float32)
+                _reproject(
+                    source=z_krig,
+                    destination=z_10m,
+                    src_transform=krig_transform, src_crs=dst_crs,
+                    dst_transform=dst_transform,  dst_crs=dst_crs,
+                    src_nodata=NODATA_RASTER, dst_nodata=NODATA_RASTER,
+                    resampling=_Resampling.bilinear,
+                )
+
+                with rasterio.open(out_file, 'w', **profile_10m) as dst:
+                    dst.write(z_10m, 1)
+                print(f"guardado ({krig_width}×{krig_height} px Kriging → {dst_width}×{dst_height} px 10m).")
             except Exception as e:
                 print(f"error: {e}")
 
@@ -478,8 +568,11 @@ def _normalizar_texturas_soilgrids():
 def armonizar_igac():
     """
     Rasteriza los GeoJSON del IGAC al grid 10 m del proyecto.
-    - Propiedades Químicas: fertilidad (categórico), pH (continuo), Al, P, K
+    - Propiedades (suelo): UCSuelo, subgrupo taxonómico, paisaje, clima, relieve, material parental
     - Vocación de Uso: código de vocación (categórico)
+
+    Los nombres de campo se buscan de forma flexible (case-insensitive y por prefijo)
+    para tolerar variaciones entre versiones del dataset IGAC.
     """
     print("\n" + "="*70)
     print("4. IGAC VECTORIAL → RASTERIZACIÓN A 10 m")
@@ -496,23 +589,35 @@ def armonizar_igac():
 
     dst_transform, dst_width, dst_height, dst_crs = get_grid_cundinamarca()
 
+    # Campos por capa: clave = nombre canónico (case-insensitive), valor = (archivo_salida, dtype)
+    # El script buscará cada campo de forma flexible antes de rasterizar.
     capas = [
         {
             'input': os.path.join(RAW_DIR, 'suelo', 'igac_quimica',
                                   'propiedades_quimicas_suelo.geojson'),
             'campos': {
-                'FERTIL':    ('fertilidad_igac.tif',    'int16',  'nearest'),
-                'PH_AGUA':   ('ph_agua_igac.tif',        'float32', 'bilinear'),
-                'SAT_AL':    ('sat_aluminio_igac.tif',   'float32', 'bilinear'),
-                'FOSFORO':   ('fosforo_igac.tif',        'float32', 'bilinear'),
-                'POTASIO':   ('potasio_igac.tif',        'float32', 'bilinear'),
+                # Clasificación del suelo
+                'UCSuelo':       ('igac_ucsuelo.tif',          'int16'),
+                'SUBGRUPO':      ('igac_subgrupo.tif',         'int16'),
+                'PAISAJE':       ('igac_paisaje.tif',          'int16'),
+                'CLIMA_1':       ('igac_clima.tif',            'int16'),
+                'TIPO_RELIE':    ('igac_relieve.tif',          'int16'),
+                'MATERIAL_P':    ('igac_material.tif',         'int16'),
+                # Propiedades químicas (valores en rangos de texto → int16 con tabla de códigos)
+                'pH':            ('igac_ph.tif',               'int16'),
+                'P':             ('igac_fosforo.tif',          'int16'),
+                'K':             ('igac_potasio.tif',          'int16'),
+                'F_SAL':         ('igac_fertilidad.tif',       'int16'),
+                '_SB':           ('igac_suma_bases.tif',       'int16'),
+                'Calificacion_1':('igac_calificacion.tif',     'int16'),
             },
         },
         {
             'input': os.path.join(RAW_DIR, 'suelo', 'igac_vocacion',
                                   'vocacion_uso_suelo.geojson'),
             'campos': {
-                'VOCACION':  ('vocacion_uso_igac.tif',   'int16',  'nearest'),
+                # El script busca 'VOCACION' exacto y también por prefijo (ej. VOCACION_USO)
+                'VOCACION':      ('igac_vocacion.tif',         'int16'),
             },
         },
     ]
@@ -531,17 +636,22 @@ def armonizar_igac():
             print(f"Error: {e}")
             continue
 
-        for campo, (out_nombre, dtype, _) in capa['campos'].items():
+        cols_upper = {c.upper(): c for c in gdf.columns}
+
+        for campo, (out_nombre, dtype) in capa['campos'].items():
             out_path = os.path.join(PROC_DIRS['igac'], out_nombre)
             if os.path.exists(out_path):
                 print(f"  Ya existe: {out_nombre}")
                 continue
 
-            # Buscar el campo con variantes de nombre (IGAC a veces cambia el case)
-            col = next((c for c in gdf.columns if c.upper() == campo.upper()), None)
+            # Búsqueda flexible: exacta (case-insensitive) → por prefijo → ausente
+            col = cols_upper.get(campo.upper())
             if col is None:
-                print(f"  Campo '{campo}' no encontrado. Columnas disponibles: "
-                      f"{list(gdf.columns[:10])}")
+                # Intentar por prefijo (ej. 'VOCACION' encuentra 'VOCACION_USO')
+                col = next((c for cu, c in cols_upper.items()
+                            if cu.startswith(campo.upper())), None)
+            if col is None:
+                # Campo no existe en este dataset — omitir silenciosamente
                 continue
 
             print(f"  Rasterizando '{col}' → {out_nombre}...", end=' ', flush=True)
@@ -855,12 +965,21 @@ def main():
         default=None,
         help='Paso a ejecutar. Sin --step ejecuta todos.'
     )
+    parser.add_argument(
+        '--variable',
+        choices=['temperatura', 'precipitacion', 'humedad'],
+        default=None,
+        help='(Solo con --step ideam) Variable a procesar. Sin --variable procesa las tres.'
+    )
     args = parser.parse_args()
+
+    if args.variable and args.step != 'ideam':
+        parser.error('--variable solo es válido con --step ideam')
 
     crear_dirs_procesamiento()
 
     pasos = {
-        'ideam':     armonizar_ideam,
+        'ideam':     lambda: armonizar_ideam(variable=args.variable),
         'chirps':    armonizar_chirps,
         'soilgrids': armonizar_soilgrids,
         'igac':      armonizar_igac,

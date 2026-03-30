@@ -41,25 +41,41 @@ CAPAS_IGAC = {
         'descripcion': 'Propiedades Químicas (pH, Aluminio, Fósforo, Potasio, Fertilidad)',
     },
     'vocacion': {
-        'url': 'https://mapas.igac.gov.co/server/rest/services/agrologia/vocaciondeusodelastitierras/MapServer/0/query',
+        'url': 'https://mapas.igac.gov.co/server/rest/services/agrologia/vocaciondeusoterritorionacional/MapServer/0/query',
         'output': 'vocacion_uso_suelo.geojson',
         'dir_key': 'suelo_vocacion',
         'descripcion': 'Vocación de Uso (Agrícola, Ganadera, Forestal, Conservación)',
     },
 }
 
-PAGE_SIZE = 1000  # reducido para minimizar bloqueos WAF
+PAGE_SIZE = 500  # conservador para minimizar bloqueos WAF
 
 
-# Headers realistas de navegador para evadir el WAF del IGAC
+# Headers de navegador completos — el WAF del IGAC es sensible a headers faltantes
 HEADERS_BROWSER = {
     'User-Agent': (
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
         'AppleWebKit/537.36 (KHTML, like Gecko) '
         'Chrome/124.0.0.0 Safari/537.36'
     ),
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'es-CO,es;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Cache-Control': 'max-age=0',
+    'DNT': '1',
+}
+
+# Headers para requests AJAX (XHR) — distintos del navegador inicial
+HEADERS_XHR = {
+    'User-Agent': (
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/124.0.0.0 Safari/537.36'
+    ),
     'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'es-CO,es;q=0.9,en;q=0.8',
+    'Accept-Language': 'es-CO,es;q=0.9,en-US;q=0.8,en;q=0.7',
     'Accept-Encoding': 'gzip, deflate, br',
     'Connection': 'keep-alive',
     'Referer': 'https://mapas.igac.gov.co/',
@@ -67,7 +83,34 @@ HEADERS_BROWSER = {
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-origin',
+    'X-Requested-With': 'XMLHttpRequest',
+    'DNT': '1',
 }
+
+
+def _esri_a_geojson(feat):
+    """
+    Convierte un feature en formato Esri JSON (devuelto por f=json) a GeoJSON.
+    Soporta Polygon y MultiPolygon (los más comunes en capas IGAC).
+    """
+    props = feat.get('attributes', {})
+    geom  = feat.get('geometry')
+
+    if geom is None:
+        geo = None
+    elif 'rings' in geom:
+        rings = geom['rings']
+        if len(rings) == 1:
+            geo = {'type': 'Polygon', 'coordinates': rings}
+        else:
+            # Heurística: anillo exterior = mayor área (primer anillo suele serlo en Esri)
+            geo = {'type': 'MultiPolygon', 'coordinates': [[r] for r in rings]}
+    elif 'x' in geom and 'y' in geom:
+        geo = {'type': 'Point', 'coordinates': [geom['x'], geom['y']]}
+    else:
+        geo = None
+
+    return {'type': 'Feature', 'geometry': geo, 'properties': props}
 
 
 def _estado_archivo(output_file):
@@ -139,17 +182,36 @@ def descargar_capa_igac(capa_key):
     offset = total_previo
     total = total_previo
 
-    # ── Sesión HTTP ────────────────────────────────────────────
-    session = requests.Session()
-    session.headers.update(HEADERS_BROWSER)
+    service_url = query_url.rsplit('/query', 1)[0]
+    folder_url  = service_url.rsplit('/', 3)[0]  # .../agrologia
 
-    # Visita inicial para obtener cookies (reduce bloqueos WAF)
-    try:
-        service_url = query_url.rsplit('/query', 1)[0]
-        session.get(service_url, params={'f': 'json'}, timeout=30)
-        time.sleep(1)
-    except Exception:
-        pass
+    # ── Sesión HTTP con warm-up realista ──────────────────────
+    def crear_sesion():
+        """
+        Crea una sesión con warm-up de navegación:
+        portal → carpeta de servicio → capa → luego query.
+        Esto genera las cookies y patrones de tráfico que el WAF espera.
+        """
+        s = requests.Session()
+        s.headers.update(HEADERS_BROWSER)
+        pasos = [
+            ('https://mapas.igac.gov.co/', {}),
+            (folder_url,      {'f': 'json'}),
+            (service_url,     {'f': 'json'}),
+            (query_url,       {'f': 'json', 'where': 'OBJECTID=1',
+                               'outFields': 'OBJECTID', 'resultRecordCount': 1}),
+        ]
+        for url, params in pasos:
+            try:
+                s.get(url, params=params or None, timeout=30)
+                time.sleep(random.uniform(1.5, 3.0))
+            except Exception:
+                pass
+        s.headers.update(HEADERS_XHR)  # cambiar a headers XHR para las queries de datos
+        return s
+
+    session = crear_sesion()
+    print(f"  Sesión inicializada con warm-up ({len(session.cookies)} cookies).")
 
     # ── Abrir archivo para escritura ───────────────────────────
     if total_previo > 0:
@@ -166,19 +228,22 @@ def descargar_capa_igac(capa_key):
         fh = open(output_file, 'w', encoding='utf-8')
         fh.write('{"type":"FeatureCollection","features":[\n')
 
-    waf_backoff = 60   # segundos de espera inicial en bloqueo WAF
+    waf_backoff  = 90    # segundos de espera inicial en bloqueo WAF
     waf_bloqueos = 0
 
     try:
         while True:
+            # Usar f=json (no f=geojson) — el WAF es menos sensible a este formato.
+            # La geometría viene como rings/paths en formato Esri JSON y se convierte manualmente.
             params = {
                 'where': 'OBJECTID>0',
                 'outFields': '*',
-                'f': 'geojson',
+                'f': 'json',
                 'outSR': '4326',
                 'resultOffset': offset,
                 'resultRecordCount': PAGE_SIZE,
                 'orderByFields': 'OBJECTID ASC',
+                'returnGeometry': 'true',
             }
 
             print(f"  Offset {offset:,}...", end=' ', flush=True)
@@ -194,18 +259,11 @@ def descargar_capa_igac(capa_key):
             content_type = response.headers.get('Content-Type', '')
             if 'text/html' in content_type or response.status_code in (403, 429):
                 waf_bloqueos += 1
-                wait = min(waf_backoff * waf_bloqueos, 300)
+                wait = min(waf_backoff * waf_bloqueos, 600)
                 print(f"\n  WAF bloqueó la solicitud (bloqueo #{waf_bloqueos}). "
-                      f"Esperando {wait}s...")
+                      f"Esperando {wait}s y renovando sesión...")
                 time.sleep(wait)
-                # Renovar sesión y cookies tras bloqueo
-                try:
-                    session = requests.Session()
-                    session.headers.update(HEADERS_BROWSER)
-                    session.get(service_url, params={'f': 'json'}, timeout=30)
-                    time.sleep(2)
-                except Exception:
-                    pass
+                session = crear_sesion()  # warm-up completo tras bloqueo
                 continue
 
             waf_bloqueos = 0  # reset en respuesta exitosa
@@ -230,15 +288,17 @@ def descargar_capa_igac(capa_key):
             for feat in features:
                 if total > 0:
                     fh.write(',\n')
-                json.dump(feat, fh, ensure_ascii=False)
+                # Convertir Esri JSON → GeoJSON (f=json devuelve formato Esri)
+                geojson_feat = _esri_a_geojson(feat)
+                json.dump(geojson_feat, fh, ensure_ascii=False)
                 total += 1
 
             fh.flush()
             print(f"{len(features):,} registros (total: {total:,})")
             offset += PAGE_SIZE
 
-            # Delay variable para no parecer un bot
-            time.sleep(random.uniform(2.0, 4.0))
+            # Delay variable con jitter para no parecer un bot
+            time.sleep(random.uniform(3.0, 6.0))
 
     except KeyboardInterrupt:
         print("\n  Descarga interrumpida por el usuario. El archivo puede reanudarse.")

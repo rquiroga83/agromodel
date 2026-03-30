@@ -1,12 +1,14 @@
 """
 06_extraer_sentinel1.py
 ═══════════════════════════════════════════════════════════════
-Descarga backscatter SAR Sentinel-1 GRD por semestre (2019-2024).
+Descarga backscatter SAR Sentinel-1 GRD por mes.
 Fuente: Copernicus Data Space (CDSE) via SentinelHub API.
 
 3 bandas: VV, VH, ratio VH/VV (dB)
-Compositing: media semestral
-12 semestres × 1 GeoTIFF de 3 bandas = 12 archivos
+Compositing: media mensual (SAR no tiene problema de nubes)
+72 meses (2020-2025) × 1 GeoTIFF de 3 bandas = 72 archivos
+
+Reanudación automática: saltea archivos ya descargados.
 
 pip install sentinelhub numpy rasterio
 """
@@ -18,7 +20,7 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import (
     CDSE_CLIENT_ID, CDSE_CLIENT_SECRET, CDSE_BASE_URL, CDSE_TOKEN_URL,
-    BBOX_WGS84, SEMESTRES, DIRS, crear_directorios
+    BBOX_WGS84, MESES, DIRS, crear_directorios
 )
 
 from sentinelhub import SHConfig, SentinelHubRequest, DataCollection, BBox, CRS, MimeType
@@ -69,15 +71,16 @@ function evaluatePixel(samples) {
 BAND_NAMES_S1 = ['VV_dB', 'VH_dB', 'VH_VV_ratio_dB']
 
 
-def descargar_semestre_s1(semestre):
+def descargar_mes_s1(mes):
     out_dir = DIRS['sat_sentinel1']
-    out_file = os.path.join(out_dir, f"s1_backscatter_{semestre['label']}.tif")
+    out_file = os.path.join(out_dir, f"s1_backscatter_{mes['label']}.tif")
 
     if os.path.exists(out_file):
-        print(f"  Ya existe: {out_file}")
+        print(f"  Ya existe: {os.path.basename(out_file)}")
         return
 
-    print(f"  Descargando Sentinel-1 semestre {semestre['label']}...")
+    print(f"  Descargando Sentinel-1 {mes['label']} "
+          f"({mes['start']} → {mes['end']})...", end=' ', flush=True)
 
     try:
         request = SentinelHubRequest(
@@ -85,7 +88,7 @@ def descargar_semestre_s1(semestre):
             input_data=[
                 SentinelHubRequest.input_data(
                     data_collection=S1_CDSE,
-                    time_interval=(semestre['start'], semestre['end']),
+                    time_interval=(mes['start'], mes['end']),
                 )
             ],
             responses=[SentinelHubRequest.output_response('default', MimeType.TIFF)],
@@ -117,20 +120,21 @@ def descargar_semestre_s1(semestre):
                 dst.write(arr[:, :, b], b + 1)
                 dst.update_tags(b + 1, name=BAND_NAMES_S1[b])
 
-        print(f"  -> Guardado: {out_file}")
+        print(f"OK ({width}×{height}, {n_bands} bandas)")
     except Exception as e:
-        print(f"  ERROR: {e}")
+        print(f"ERROR: {e}")
 
 
 def main():
     crear_directorios()
     print("="*70)
-    print("DESCARGA SENTINEL-1 BACKSCATTER SAR (2019-2024)")
+    print("DESCARGA SENTINEL-1 BACKSCATTER SAR — COMPOSITES MENSUALES")
     print(f"Bandas: {', '.join(BAND_NAMES_S1)}")
+    print(f"Meses: {len(MESES)} ({MESES[0]['label']} a {MESES[-1]['label']})")
     print("="*70)
 
-    for sem in SEMESTRES:
-        descargar_semestre_s1(sem)
+    for mes in MESES:
+        descargar_mes_s1(mes)
 
     print("\nDESCARGA SENTINEL-1 COMPLETADA")
 
