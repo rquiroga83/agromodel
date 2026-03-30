@@ -45,6 +45,7 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
+.claude/
 nosetests.xml
 coverage.xml
 *.cover
@@ -69,6 +70,8 @@ coverage.xml
 *.swo
 *~
 .DS_Store
+
+SPEC.md
 
 # ══════════════════════════════════════════════════════════════════
 # DATOS — no versionar (volumen grande, reproducibles desde extractores)
