@@ -75,7 +75,7 @@ coverage.xml
 # ══════════════════════════════════════════════════════════════════
 
 # Datos crudos descargados
-extractores/raw/
+extractores/raw/*
 
 # Capas armonizadas (generadas por procesamiento/)
 processed/
