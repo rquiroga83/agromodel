@@ -9,10 +9,28 @@ Ventana temporal: 2019-2024 (6 años, 12 semestres)
   - Sentinel-2/1: 2019-01-01 a 2024-12-31
   - Suelo / DEM: estáticos (una sola descarga)
 
-pip install requests pandas geopandas rasterio sentinelhub numpy scipy pysheds
+Variables sensibles (credenciales) en extractores/.env — no en git.
+Copiar extractores/.env.example → extractores/.env y completar los valores.
+
+pip install requests pandas geopandas rasterio sentinelhub numpy scipy pysheds python-dotenv
 """
 
 import os
+from pathlib import Path
+
+# Cargar .env si existe (python-dotenv opcional; fallback a os.environ puro)
+_env_path = Path(__file__).parent / '.env'
+try:
+    from dotenv import load_dotenv
+    load_dotenv(_env_path)
+except ImportError:
+    # Sin python-dotenv: parsear manualmente el .env
+    if _env_path.exists():
+        for _line in _env_path.read_text().splitlines():
+            _line = _line.strip()
+            if _line and not _line.startswith('#') and '=' in _line:
+                _k, _v = _line.split('=', 1)
+                os.environ.setdefault(_k.strip(), _v.strip())
 
 # ──────────────────────────────────────────────────────────────
 # ÁREA DE INTERÉS — Cundinamarca (WGS84)
@@ -37,14 +55,23 @@ for year in range(YEAR_START, YEAR_END + 1):
 
 # ──────────────────────────────────────────────────────────────
 # CREDENCIALES COPERNICUS DATA SPACE (CDSE)
+# Leídas desde extractores/.env — nunca hardcodear aquí.
 # ──────────────────────────────────────────────────────────────
-CDSE_CLIENT_ID     = 'sh-d7474d2c-e4e8-44a2-80a1-cec3da1afc30'
-CDSE_CLIENT_SECRET = 'pahkhcQCFoWrXsIje6fpB3G0U7UUBsMr'
+CDSE_CLIENT_ID     = os.environ.get('CDSE_CLIENT_ID', '')
+CDSE_CLIENT_SECRET = os.environ.get('CDSE_CLIENT_SECRET', '')
 CDSE_BASE_URL      = 'https://sh.dataspace.copernicus.eu'
 CDSE_TOKEN_URL     = (
     'https://identity.dataspace.copernicus.eu'
     '/auth/realms/CDSE/protocol/openid-connect/token'
 )
+
+if not CDSE_CLIENT_ID or not CDSE_CLIENT_SECRET:
+    import warnings
+    warnings.warn(
+        "CDSE_CLIENT_ID / CDSE_CLIENT_SECRET no configurados. "
+        "Copiar extractores/.env.example → extractores/.env y completar las credenciales.",
+        stacklevel=2,
+    )
 
 # ──────────────────────────────────────────────────────────────
 # ESTRUCTURA DE DIRECTORIOS
@@ -81,7 +108,10 @@ def crear_directorios():
 # App Token de datos.gov.co (Socrata) — sin token: throttling por IP compartido.
 # Con token: hasta 1.000 requests/hora sin throttling por request.
 # Crear en: https://www.datos.gov.co → perfil → Developer Settings → Create New App Token
-SODA_APP_TOKEN = os.environ.get('SODA_APP_TOKEN', 'v1VwafGrvw2k2T30YlxxOdRsM')  # poner el token aquí o en variable de entorno
+# App Token de datos.gov.co (Socrata) — leído desde extractores/.env
+# Sin token: throttling por IP compartido.
+# Con token: hasta 1.000 requests/hora sin throttling por request.
+SODA_APP_TOKEN = os.environ.get('SODA_APP_TOKEN', '')
 
 HEADERS_GOV = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
