@@ -44,9 +44,10 @@ Utilidad genérica que toma cualquier GeoTIFF de entrada (en cualquier CRS y res
 
 ## Paso 1 — Estaciones IDEAM → Kriging + Corrección Adiabática
 
-**Función:** `armonizar_ideam()`
+**Función:** `armonizar_ideam(variable=None)`
 **Entrada:** CSV por mes/año en `extractores/raw/clima/ideam_{temperatura|precipitacion|humedad}/`
-**Salida:** `processed/clima/ideam/{variable}_{semestre}_kriging.tif`
+**Salida:** `processed/clima/ideam/{variable}_{YYYY_MM}_kriging.tif` (mensual)
+**Flag:** `--variable temperatura|precipitacion|humedad` para ejecutar una sola variable
 
 ### El Problema
 
@@ -76,9 +77,16 @@ El proceso de corrección adiabática tiene dos momentos:
 
 > **Nota:** el DEM debe armonizarse primero (`--step dem`). Si no existe, la corrección adiabática se omite y se emite un aviso.
 
-### Agregación Temporal por Semestre
+### Agregación Temporal por Mes
 
-Los datos IDEAM tienen una observación por cada 10 minutos (precipitación) o cada hora (temperatura, humedad). Se agrupan por semestre agrícola (Semestre A: enero–junio, Semestre B: julio–diciembre) y se calcula la **mediana** por estación. La mediana es robusta ante outliers instrumentales comunes en redes de telemetría.
+Los datos IDEAM tienen una observación por cada 10 minutos (precipitación) o cada hora (temperatura, humedad). Se agrupan por **mes calendario** (YYYY_MM) y se calcula la **mediana** por estación. La mediana es robusta ante outliers instrumentales comunes en redes de telemetría.
+
+La granularidad mensual (72 rásteres por variable: 12 meses × 6 años) es necesaria para:
+- Features temporales del LSTM que espera secuencias mensuales
+- El NDVI integral y máximo requieren datos mensuales
+- La bimodalidad de lluvias en Cundinamarca (picos en abril–mayo y octubre–noviembre) se diluye en agregados semestrales
+
+Los agregados semestrales se generan en un paso posterior (`02_armonizar_temporal.py`).
 
 ---
 
@@ -152,19 +160,25 @@ Los datos IGAC son polígonos de unidades de suelo con atributos como fertilidad
 
 **De propiedades químicas (`propiedades_quimicas_suelo.geojson`):**
 
-| Campo IGAC | Archivo de salida | Tipo | Resampling |
-|---|---|---|---|
-| `FERTIL` | `fertilidad_igac.tif` | Categórico (int16) | nearest |
-| `PH_AGUA` | `ph_agua_igac.tif` | Continuo (float32) | bilineal |
-| `SAT_AL` | `sat_aluminio_igac.tif` | Continuo (float32) | bilineal |
-| `FOSFORO` | `fosforo_igac.tif` | Continuo (float32) | bilineal |
-| `POTASIO` | `potasio_igac.tif` | Continuo (float32) | bilineal |
+| Campo IGAC | Archivo de salida | Tipo |
+|---|---|---|
+| `pH` | `ph_igac.tif` | Categórico (int16) — rangos textuales como "≤ 5.5" |
+| `P` | `fosforo_igac.tif` | Categórico (int16) |
+| `K` | `potasio_igac.tif` | Categórico (int16) |
+| `F_SAL` | `f_sal_igac.tif` | Categórico (int16) |
+| `_SB` | `sat_bases_igac.tif` | Categórico (int16) |
+| `Calificacion_1` | `calificacion_igac.tif` | Categórico (int16) |
+| `UCSuelo` | `ucsuelo_igac.tif` | Categórico (int16) |
+| `SUBGRUPO` | `subgrupo_igac.tif` | Categórico (int16) |
+| `PAISAJE` | `paisaje_igac.tif` | Categórico (int16) |
+
+> **Nota:** Los campos químicos del IGAC son rangos textuales (e.g., "≤ 5.5", "5.5 - 6.0"), no valores numéricos continuos. Todos se codifican como categóricos (int16) con tabla de códigos JSON.
 
 **De vocación de uso (`vocacion_uso_suelo.geojson`):**
 
-| Campo IGAC | Archivo de salida | Tipo | Resampling |
-|---|---|---|---|
-| `VOCACION` | `vocacion_uso_igac.tif` | Categórico (int16) | nearest |
+| Campo IGAC | Archivo de salida | Tipo |
+|---|---|---|
+| `VOCACION` | `vocacion_uso_igac.tif` | Categórico (int16) |
 
 ### Codificación de Categóricos y Tabla de Códigos
 
@@ -179,35 +193,43 @@ Esto permite interpretar las predicciones del modelo después de entrenamiento.
 
 ---
 
-## Paso 5 — Sentinel-2 → Reproyección a EPSG:3116 / 10 m
+## Paso 5 — Sentinel-2 → Reproyección a EPSG:3116 (resolución nativa ~10 m)
 
 **Función:** `armonizar_sentinel2()`
-**Entrada:** `extractores/raw/satelite/sentinel2/*.tif`
-**Salida:** `processed/satelite/sentinel2/*.tif`
+**Entrada:** `extractores/raw/satelite/sentinel2/s2_indices_{YYYY_MM}.tif` (mensuales, descargados por tiles a 10 m real)
+**Salida:** `processed/satelite/sentinel2/s2_indices_{YYYY_MM}.tif`
 
 ### Qué Contienen los GeoTIFF de Sentinel-2
 
-El extractor descarga compuestos semestrales de reflectancia de superficie por banda espectral:
+El extractor descarga compuestos **mensuales** de 7 índices espectrales calculados directamente en SentinelHub:
 
-- **Bandas a 10 m nativos:** B02 (azul), B03 (verde), B04 (rojo), B08 (NIR cercano)
-- **Bandas a 20 m nativos:** B05, B06, B07, B8A (NIR red-edge), B11, B12 (SWIR)
-- **Índices derivados:** NDVI, EVI, NDWI (calculados en el extractor a partir de las bandas)
+| Banda | Índice | Fórmula |
+|---|---|---|
+| 1 | NDVI | (B08−B04)/(B08+B04) |
+| 2 | GNDVI | (B08−B03)/(B08+B03) |
+| 3 | EVI | 2.5×(B08−B04)/(B08+6×B04−7.5×B02+1) |
+| 4 | NDWI | (B03−B08)/(B03+B08) |
+| 5 | MSAVI | (2×B08+1−√((2×B08+1)²−8×(B08−B04)))/2 |
+| 6 | BSI | ((B11+B04)−(B08+B02))/((B11+B04)+(B08+B02)) |
+| 7 | SAVI | 1.5×(B08−B04)/(B08+B04+0.5) |
 
-### Por Qué Solo Bilineal Para Ambas Resoluciones
+La descarga se hace por **tiles** (~80 tiles de 0.22° para cubrir Cundinamarca) a resolución real de 10 m, luego se fusionan con `rasterio.merge`. Esto garantiza que cada píxel contiene información real a 10 m, no una interpolación artificial desde resolución más gruesa.
 
-Sentinel-2 ya descarga en UTM (generalmente EPSG:32618 para Colombia), que es un sistema de coordenadas plano métrico. La reproyección a EPSG:3116 implica una leve rotación y corrección de escala. El resampling bilineal es adecuado para reflectancias (variables continuas físicamente significativas). Las bandas a 20 m se upsamplean a 10 m, lo que es aceptable porque la resolución espectral de esas bandas sigue siendo válida a 10 m para índices vegetativos.
+### Reproyección Nativa (sin forzar al grid 10 m)
+
+Se usa `reproyectar_raster_nativo()` que calcula el transform de salida con `calculate_default_transform()`, preservando la resolución nativa del archivo de entrada (~10 m). A diferencia de `reproyectar_raster()` que fuerza las dimensiones exactas del grid de Cundinamarca, esta función conserva la resolución original del sensor.
 
 ---
 
-## Paso 6 — Sentinel-1 → Solo Reproyección a EPSG:3116
+## Paso 6 — Sentinel-1 → Reproyección a EPSG:3116 (resolución nativa ~10 m)
 
 **Función:** `armonizar_sentinel1()`
-**Entrada:** `extractores/raw/satelite/sentinel1/*.tif`
-**Salida:** `processed/satelite/sentinel1/*.tif`
+**Entrada:** `extractores/raw/satelite/sentinel1/s1_backscatter_{YYYY_MM}.tif` (mensuales, descargados por tiles a 10 m real)
+**Salida:** `processed/satelite/sentinel1/s1_backscatter_{YYYY_MM}.tif`
 
 ### Diferencia con Sentinel-2
 
-Sentinel-1 es radar de apertura sintética (SAR). Sus GRD (Ground Range Detected) procesados ya tienen resolución de 10 m nativa. Por lo tanto, este paso solo realiza la reproyección de CRS (de UTM a EPSG:3116) sin ningún cambio de resolución. El método bilineal se aplica igualmente para el remuestreo a causa del shift geográfico en la reproyección.
+Sentinel-1 es radar de apertura sintética (SAR). Contiene 3 bandas: VV_dB, VH_dB, VH_VV_ratio_dB. Al igual que Sentinel-2, se descarga por tiles a 10 m real y se reproyecta con `reproyectar_raster_nativo()` que preserva la resolución nativa.
 
 ### Valor del SAR para el Proyecto
 
@@ -308,26 +330,28 @@ uv run procesamiento/01_armonizar_espacial.py
 processed/
 ├── clima/
 │   ├── ideam/
-│   │   ├── temperatura_2020A_kriging.tif
-│   │   ├── temperatura_2020B_kriging.tif
-│   │   ├── precipitacion_2020A_kriging.tif
-│   │   └── humedad_2020A_kriging.tif
+│   │   ├── temperatura_2019_01_kriging.tif    # Mensual (72 archivos por variable)
+│   │   ├── temperatura_2019_02_kriging.tif
+│   │   ├── precipitacion_2019_01_kriging.tif
+│   │   └── humedad_2019_01_kriging.tif
 │   └── chirps/
-│       └── chirps_v2.0.2020.01.tif
+│       ├── chirps_2019_01.tif                 # Mensual (72 archivos)
+│       └── chirps_2019_02.tif
 ├── suelo/
 │   ├── soilgrids/
 │   │   ├── soilgrids_phh2o_0_5cm.tif
 │   │   ├── soilgrids_clay_0_5cm.tif
 │   │   └── soilgrids_clay_0_5cm_norm.tif
 │   └── igac/
-│       ├── fertilidad_igac.tif
-│       ├── fertilidad_igac_tabla_codigos.json
+│       ├── ph_igac.tif
+│       ├── ph_igac_tabla_codigos.json
+│       ├── ucsuelo_igac.tif
 │       └── vocacion_uso_igac.tif
 ├── satelite/
 │   ├── sentinel2/
-│   │   └── s2_2020A_B04.tif
+│   │   └── s2_indices_2019_01.tif             # Mensual, 7 bandas (índices), ~10 m real
 │   └── sentinel1/
-│       └── s1_2020A_VV.tif
+│       └── s1_backscatter_2019_01.tif         # Mensual, 3 bandas (VV, VH, ratio), ~10 m real
 └── topo/
     ├── dem_elevacion_10m.tif
     ├── dem_pendiente_10m.tif

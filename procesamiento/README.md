@@ -165,3 +165,143 @@ uv run procesamiento/01_armonizar_espacial.py --step validar
 ### Reanudación automática
 
 Cada paso verifica si el archivo de salida ya existe antes de procesarlo. Si una ejecución se interrumpe, basta con volver a correr el mismo comando — los archivos ya generados se saltan automáticamente.
+
+---
+
+## 02_armonizar_temporal.py
+
+Agrega los rásteres **mensuales** generados por `01_armonizar_espacial.py` en **estadísticos semestrales** alineados con los semestres agrícolas EVA (Semestre A: enero–junio, Semestre B: julio–diciembre).
+
+### ¿Por qué este paso?
+
+Los modelos necesitan features a nivel semestral (cada observación = un píxel × semestre), pero los datos mensuales se conservan para el LSTM y features temporales. Este script genera los agregados semestrales que alimentan la vista minable y el feature engineering.
+
+### Agregaciones por fuente
+
+| Fuente | Variable | Agregación | Archivo de salida |
+|---|---|---|---|
+| IDEAM | Temperatura | media, max, min | `temperatura_{agg}_{YYYY[AB]}.tif` |
+| IDEAM | Precipitación | acumulado (suma) | `precipitacion_acum_{YYYY[AB]}.tif` |
+| IDEAM | Humedad | media | `humedad_media_{YYYY[AB]}.tif` |
+| CHIRPS | Precipitación | acumulado (suma) | `chirps_acum_{YYYY[AB]}.tif` |
+| Sentinel-2 | 7 índices (NDVI, GNDVI, EVI, NDWI, MSAVI, BSI, SAVI) | media, max, std | `s2_{indice}_{agg}_{YYYY[AB]}.tif` |
+| Sentinel-1 | 3 bandas (VV, VH, VH/VV ratio) | media | `s1_{banda}_media_{YYYY[AB]}.tif` |
+
+### Requisitos mínimos
+
+- IDEAM/CHIRPS: mínimo 3 de 6 meses disponibles por semestre
+- Sentinel-1/2: mínimo 2 de 6 meses disponibles por semestre
+
+### Dependencias
+
+```bash
+pip install rasterio numpy
+```
+
+### Ejecución
+
+```bash
+# Agregar todo
+uv run procesamiento/02_armonizar_temporal.py
+
+# Pasos individuales
+uv run procesamiento/02_armonizar_temporal.py --step ideam
+uv run procesamiento/02_armonizar_temporal.py --step chirps
+uv run procesamiento/02_armonizar_temporal.py --step sentinel2
+uv run procesamiento/02_armonizar_temporal.py --step sentinel1
+```
+
+### Salida
+
+```
+processed/temporal/
+├── clima/
+│   ├── ideam/
+│   │   ├── temperatura_media_2019A.tif
+│   │   ├── temperatura_max_2019A.tif
+│   │   ├── temperatura_min_2019A.tif
+│   │   ├── precipitacion_acum_2019A.tif
+│   │   └── humedad_media_2019A.tif
+│   └── chirps/
+│       └── chirps_acum_2019A.tif
+└── satelite/
+    ├── sentinel2/
+    │   ├── s2_ndvi_media_2019A.tif
+    │   ├── s2_ndvi_max_2019A.tif
+    │   ├── s2_ndvi_std_2019A.tif
+    │   └── ...  (7 índices × 3 agregaciones × 12 semestres)
+    └── sentinel1/
+        ├── s1_vv_media_2019A.tif
+        ├── s1_vh_media_2019A.tif
+        └── s1_vh_vv_ratio_media_2019A.tif
+```
+
+---
+
+## 03_feature_engineering.py
+
+Genera **features derivadas** a partir de las capas armonizadas y los agregados temporales. Estas features capturan relaciones agroecológicas que no están explícitas en los datos crudos.
+
+### Features generadas
+
+| Feature | Fuentes de entrada | Descripción |
+|---|---|---|
+| **Piso térmico** | DEM elevación | Clasificación altitudinal: 0=cálido (<1000m), 1=templado (1000–2000m), 2=frío (2000–3000m), 3=páramo (>3000m) |
+| **Amplitud térmica** | Temp. max − Temp. min semestral | Diferencia entre temperatura máxima y mínima media del semestre (°C) |
+| **Índice de fertilidad** | SoilGrids (N, pH, CEC, SOC) 0–5 cm | Promedio ponderado normalizado: 0.25×N + 0.25×pH_opt + 0.25×CEC + 0.25×SOC. pH óptimo = 1 − |pH−6.5|/3.5 |
+| **Anomalía de precipitación** | CHIRPS acumulado semestral | (precip − normal) / std, agrupado por tipo de semestre (A/B). Detecta semestres atípicamente secos o lluviosos |
+| **NDVI máximo** | S2 NDVI mensual | Máximo valor de NDVI en el semestre — proxy de vigor vegetativo pico |
+| **NDVI integral** | S2 NDVI mensual | Suma de NDVI mensual × 30 días — proxy de producción de biomasa total |
+| **Índice de aridez** | Temp. media/max/min + CHIRPS acum | Precipitación / ETP (Hargreaves). ETP = 0.0023 × (Tmedia+17.8) × √(Tmax−Tmin) × Ra × días. Valores <1 = déficit hídrico |
+
+### Dependencias
+
+```bash
+pip install rasterio numpy
+```
+
+### Ejecución
+
+```bash
+# Generar todas las features
+uv run procesamiento/03_feature_engineering.py
+
+# Pasos individuales
+uv run procesamiento/03_feature_engineering.py --step piso_termico
+uv run procesamiento/03_feature_engineering.py --step amplitud_termica
+uv run procesamiento/03_feature_engineering.py --step indice_fertilidad
+uv run procesamiento/03_feature_engineering.py --step anomalia_precip
+uv run procesamiento/03_feature_engineering.py --step ndvi_features
+uv run procesamiento/03_feature_engineering.py --step indice_aridez
+```
+
+### Salida
+
+```
+processed/engineered/
+├── piso_termico.tif                   # Estático (int8)
+├── indice_fertilidad.tif              # Estático (float32)
+├── amplitud_termica_2019A.tif         # Por semestre
+├── anomalia_precip_2019A.tif          # Por semestre
+├── ndvi_max_2019A.tif                 # Por semestre
+├── ndvi_integral_2019A.tif            # Por semestre
+└── indice_aridez_2019A.tif            # Por semestre
+```
+
+---
+
+## Orden completo de procesamiento
+
+```bash
+# 1. Armonización espacial (mensual, 10 m, EPSG:3116)
+uv run procesamiento/01_armonizar_espacial.py
+
+# 2. Agregación temporal (mensual → estadísticos semestrales)
+uv run procesamiento/02_armonizar_temporal.py
+
+# 3. Feature engineering (features derivadas)
+uv run procesamiento/03_feature_engineering.py
+
+# 4. Vista minable (pendiente)
+# uv run procesamiento/04_construir_vista_minable.py
+```

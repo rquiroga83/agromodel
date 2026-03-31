@@ -234,10 +234,10 @@ que-sembrar/
 │           └── sipra/
 │
 ├── procesamiento/                      # Armonización y feature engineering
-│   ├── 01_armonizar_espacial.py        # ✅ Implementado
-│   ├── 02_armonizar_temporal.py
-│   ├── 03_feature_engineering.py
-│   └── 04_construir_vista_minable.py
+│   ├── 01_armonizar_espacial.py        # ✅ Reproyección al grid 10 m EPSG:3116
+│   ├── 02_armonizar_temporal.py        # ✅ Agregación mensual → estadísticos semestrales
+│   ├── 03_feature_engineering.py       # ✅ Features derivadas (piso térmico, fertilidad, ETP…)
+│   └── 04_construir_vista_minable.py   # Pendiente
 │
 ├── entrenamiento/                      # Training pipeline
 │   ├── 01_eda_exploratorio.py
@@ -260,19 +260,33 @@ que-sembrar/
 │
 ├── processed/                          # Capas armonizadas a 10 m EPSG:3116 — no en git
 │   ├── clima/
-│   │   ├── ideam/
-│   │   └── chirps/
+│   │   ├── ideam/                      # {variable}_{YYYY_MM}_kriging.tif (mensuales)
+│   │   └── chirps/                     # chirps_{YYYY_MM}.tif (mensuales)
 │   ├── suelo/
 │   │   ├── soilgrids/
 │   │   └── igac/
 │   ├── satelite/
-│   │   ├── sentinel2/
-│   │   └── sentinel1/
-│   └── topo/
+│   │   ├── sentinel2/                  # s2_indices_{YYYY_MM}.tif (mensuales, 10 m real)
+│   │   └── sentinel1/                  # s1_backscatter_{YYYY_MM}.tif (mensuales, 10 m real)
+│   ├── topo/
+│   ├── temporal/                       # Estadísticos semestrales (02_armonizar_temporal)
+│   │   ├── clima/ideam/               # {variable}_{agg}_{YYYY[AB]}.tif
+│   │   ├── clima/chirps/             # chirps_acum_{YYYY[AB]}.tif
+│   │   ├── satelite/sentinel2/       # s2_{indice}_{agg}_{YYYY[AB]}.tif
+│   │   └── satelite/sentinel1/       # s1_{banda}_media_{YYYY[AB]}.tif
+│   └── engineered/                     # Features derivadas (03_feature_engineering)
+│       ├── piso_termico.tif
+│       ├── amplitud_termica_{YYYY[AB]}.tif
+│       ├── indice_fertilidad.tif
+│       ├── anomalia_precip_{YYYY[AB]}.tif
+│       ├── ndvi_max_{YYYY[AB]}.tif
+│       ├── ndvi_integral_{YYYY[AB]}.tif
+│       └── indice_aridez_{YYYY[AB]}.tif
 │
 ├── vista_minable/                      # Tabla final de entrenamiento — no en git
 │
-├── docs/                               # Documentación técnica (HTML generados)
+├── docs/                               # Documentación técnica
+│   ├── armonizacion_espacial.md        # Detalle de reproyección y kriging
 │   ├── vista_minable_que_sembrar.html
 │   ├── datos_etiquetado_target.html
 │   ├── modelos_ia_recomendados.html
@@ -367,11 +381,41 @@ uv run procesamiento/01_armonizar_espacial.py
 
 # Pasos individuales
 uv run procesamiento/01_armonizar_espacial.py --step dem        # Primero siempre
-uv run procesamiento/01_armonizar_espacial.py --step ideam      # Kriging estaciones
+uv run procesamiento/01_armonizar_espacial.py --step ideam      # Kriging mensual (todas las variables)
+uv run procesamiento/01_armonizar_espacial.py --step ideam --variable temperatura  # Solo una variable
 uv run procesamiento/01_armonizar_espacial.py --step soilgrids
 uv run procesamiento/01_armonizar_espacial.py --step igac
 uv run procesamiento/01_armonizar_espacial.py --step sentinel2
+uv run procesamiento/01_armonizar_espacial.py --step sentinel1
 uv run procesamiento/01_armonizar_espacial.py --step validar    # Verificar consistencia
+```
+
+### Agregación Temporal
+
+```bash
+# Agregar rásteres mensuales → estadísticos semestrales
+uv run procesamiento/02_armonizar_temporal.py
+
+# Pasos individuales
+uv run procesamiento/02_armonizar_temporal.py --step ideam      # Clima IDEAM
+uv run procesamiento/02_armonizar_temporal.py --step chirps     # Precipitación CHIRPS
+uv run procesamiento/02_armonizar_temporal.py --step sentinel2  # Índices espectrales
+uv run procesamiento/02_armonizar_temporal.py --step sentinel1  # Backscatter SAR
+```
+
+### Feature Engineering
+
+```bash
+# Generar todas las features derivadas
+uv run procesamiento/03_feature_engineering.py
+
+# Pasos individuales
+uv run procesamiento/03_feature_engineering.py --step piso_termico       # Clasificación altitudinal
+uv run procesamiento/03_feature_engineering.py --step amplitud_termica   # Tmax − Tmin semestral
+uv run procesamiento/03_feature_engineering.py --step indice_fertilidad  # Índice compuesto de suelo
+uv run procesamiento/03_feature_engineering.py --step anomalia_precip    # Anomalía de precipitación
+uv run procesamiento/03_feature_engineering.py --step ndvi_features      # NDVI max + integral
+uv run procesamiento/03_feature_engineering.py --step indice_aridez      # Hargreaves ETP / precipitación
 ```
 
 ### Entrenamiento
@@ -437,6 +481,8 @@ El diseño del sistema se fundamenta en el análisis de 15+ artículos científi
 - [x] Scripts de extracción de datos (8 extractores)
 - [x] Estrategia de preparación de datos y construcción de vista minable
 - [x] Armonización espacial (`procesamiento/01_armonizar_espacial.py`)
+- [x] Agregación temporal mensual → semestral (`procesamiento/02_armonizar_temporal.py`)
+- [x] Feature engineering derivado (`procesamiento/03_feature_engineering.py`)
 - [ ] Construcción de la vista minable
 - [ ] Entrenamiento y evaluación de modelos
 - [ ] Desarrollo de API REST (FastAPI)
