@@ -11,8 +11,8 @@ extractores/
 ├── 02_extraer_chirps.py           # Clima: Precipitación satelital CHIRPS
 ├── 03_extraer_suelo_igac.py       # Suelo: Propiedades Químicas + Vocación de Uso (IGAC)
 ├── 04_extraer_soilgrids.py        # Suelo: SoilGrids 2.0 (pH, SOC, textura, densidad, CEC, N)
-├── 05_extraer_sentinel2.py        # Satélite: Sentinel-2 índices espectrales semestrales
-├── 06_extraer_sentinel1.py        # Satélite: Sentinel-1 backscatter SAR semestral
+├── 05_extraer_sentinel2.py        # Satélite: Sentinel-2 índices espectrales mensuales (10 m real, tiles)
+├── 06_extraer_sentinel1.py        # Satélite: Sentinel-1 backscatter SAR mensual (10 m real, tiles)
 ├── 07_extraer_dem_topografia.py   # Topografía: DEM + Pendiente + Aspecto + Curvatura + TWI
 └── 08_extraer_target.py           # Target: EVA + Monitoreo UPRA + SIPRA Aptitud
 ```
@@ -33,7 +33,15 @@ uv run run_all.py
 
 # Ejecutar un extractor específico por número
 uv run run_all.py 01        # Solo clima IDEAM (los 4 pasos)
-uv run run_all.py 05 06     # Solo Sentinel-2 y Sentinel-1
+uv run run_all.py 05 06     # Solo Sentinel-2 y Sentinel-1 (tiles + merge)
+
+# Script 05 — Sentinel-2: descargar un mes específico (tiles + merge)
+uv run extractores/05_extraer_sentinel2.py --mes 2020_01
+uv run extractores/05_extraer_sentinel2.py               # Todos los meses
+
+# Script 06 — Sentinel-1: descargar un mes específico (tiles + merge)
+uv run extractores/06_extraer_sentinel1.py --mes 2020_01
+uv run extractores/06_extraer_sentinel1.py               # Todos los meses
 uv run run_all.py 08        # Solo targets (EVA, Monitoreo, SIPRA)
 
 # Script 01 — Clima IDEAM: ejecutar cada variable de forma independiente
@@ -88,8 +96,8 @@ raw/
 │   ├── igac_vocacion/         → GeoJSON (vocación de uso, 18 clases)
 │   └── soilgrids/             → 27 GeoTIFF (9 propiedades × 3 profundidades)
 ├── satelite/
-│   ├── sentinel2/             → 12 GeoTIFF semestrales (7 bandas cada uno)
-│   └── sentinel1/             → 12 GeoTIFF semestrales (3 bandas cada uno)
+│   ├── sentinel2/             → 72 GeoTIFF mensuales a 10 m (7 bandas cada uno, ~1.3 GB/mes)
+│   └── sentinel1/             → 72 GeoTIFF mensuales a 10 m (3 bandas cada uno, ~550 MB/mes)
 ├── topo/
 │   └── dem_glo30/             → 1 GeoTIFF multibanda (5 bandas topográficas)
 └── target/
@@ -106,8 +114,8 @@ raw/
 | 02 | CHIRPS (CHC UCSB o GEE) | 30-60 min | ~200 MB TIF |
 | 03 | IGAC (ArcGIS REST) | 2-4 horas | ~300 MB GeoJSON |
 | 04 | SoilGrids (ISRIC WCS) | 30-60 min | ~100 MB TIF |
-| 05 | Sentinel-2 (CDSE) | 1-2 horas | ~500 MB TIF |
-| 06 | Sentinel-1 (CDSE) | 30-60 min | ~200 MB TIF |
+| 05 | Sentinel-2 (CDSE) | ~3 horas (~80 tiles × 72 meses) | ~94 GB TIF |
+| 06 | Sentinel-1 (CDSE) | ~3 horas (~80 tiles × 72 meses) | ~40 GB TIF |
 | 07 | DEM Copernicus (CDSE) | 5-10 min | ~50 MB TIF |
 | 08 | EVA + UPRA + SIPRA | 1-2 horas | ~200 MB |
 

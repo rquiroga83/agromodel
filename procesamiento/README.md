@@ -94,25 +94,25 @@ Salida: `processed/suelo/igac/*.tif` y `*_tabla_codigos.json`
 
 #### Paso 5 — Sentinel-2
 
-Reproyecta compuestos semestrales de reflectancia Sentinel-2 a EPSG:3116 / 10 m. Funciona tanto para bandas nativas a 10 m como a 20 m.
+Reproyecta los GeoTIFF mensuales de Sentinel-2 de WGS84 a EPSG:3116. Conserva la resolución nativa (~10 m) — no hace upsample artificial.
 
 ```bash
 uv run procesamiento/01_armonizar_espacial.py --step sentinel2
 ```
 
-Salida: `processed/satelite/sentinel2/s2_indices_{YYYY_MM}.tif`
+Salida: `processed/satelite/sentinel2/s2_indices_{YYYY_MM}.tif` (resolución nativa ~10 m en EPSG:3116)
 
 ---
 
 #### Paso 6 — Sentinel-1
 
-Reproyecta imágenes SAR Sentinel-1 GRD a EPSG:3116 (resolución nativa ya es 10 m).
+Reproyecta los GeoTIFF mensuales de Sentinel-1 SAR de WGS84 a EPSG:3116. Conserva resolución nativa (~10 m).
 
 ```bash
 uv run procesamiento/01_armonizar_espacial.py --step sentinel1
 ```
 
-Salida: `processed/satelite/sentinel1/s1_backscatter_{YYYY_MM}.tif`
+Salida: `processed/satelite/sentinel1/s1_backscatter_{YYYY_MM}.tif` (resolución nativa ~10 m en EPSG:3116)
 
 ---
 

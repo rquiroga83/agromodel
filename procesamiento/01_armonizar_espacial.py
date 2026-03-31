@@ -101,7 +101,7 @@ def get_grid_cundinamarca():
 
 def reproyectar_raster(src_path, dst_path, resampling_method='bilinear', dtype=None):
     """
-    Reproyecta y remuestrea un GeoTIFF al grid objetivo del proyecto.
+    Reproyecta y remuestrea un GeoTIFF al grid objetivo del proyecto (10 m).
 
     Args:
         src_path        : ruta del raster de entrada
@@ -143,6 +143,54 @@ def reproyectar_raster(src_path, dst_path, resampling_method='bilinear', dtype=N
                     src_transform=src.transform,
                     src_crs=src.crs,
                     dst_transform=dst_transform,
+                    dst_crs=dst_crs,
+                    resampling=RESAMPLING[resampling_method],
+                )
+
+
+def reproyectar_raster_nativo(src_path, dst_path, resampling_method='bilinear'):
+    """
+    Reproyecta un GeoTIFF a EPSG:3116 conservando la resolución nativa.
+    No fuerza el grid de 10 m del proyecto — calcula el transform óptimo
+    para la resolución original del archivo.
+    """
+    import rasterio
+    from rasterio.warp import calculate_default_transform, reproject, Resampling
+    from rasterio.crs import CRS
+
+    RESAMPLING = {
+        'bilinear': Resampling.bilinear,
+        'nearest':  Resampling.nearest,
+        'cubic':    Resampling.cubic,
+    }
+
+    dst_crs = CRS.from_epsg(3116)
+
+    with rasterio.open(src_path) as src:
+        transform, width, height = calculate_default_transform(
+            src.crs, dst_crs, src.width, src.height, *src.bounds
+        )
+
+        profile = src.profile.copy()
+        profile.update(
+            crs=dst_crs,
+            transform=transform,
+            width=width,
+            height=height,
+            nodata=src.nodata or NODATA_RASTER,
+            compress='deflate',
+            driver='GTiff',
+        )
+
+        os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+        with rasterio.open(dst_path, 'w', **profile) as dst:
+            for i in range(1, src.count + 1):
+                reproject(
+                    source=rasterio.band(src, i),
+                    destination=rasterio.band(dst, i),
+                    src_transform=src.transform,
+                    src_crs=src.crs,
+                    dst_transform=transform,
                     dst_crs=dst_crs,
                     resampling=RESAMPLING[resampling_method],
                 )
@@ -710,17 +758,17 @@ def armonizar_igac():
 
 
 # ══════════════════════════════════════════════════════════════════
-# 5. SENTINEL-2 — REPROYECCIÓN + BANDAS 20 m → 10 m
+# 5. SENTINEL-2 — REPROYECCIÓN CRS (resolución nativa ~10 m)
 # ══════════════════════════════════════════════════════════════════
 
 def armonizar_sentinel2():
     """
-    Reproyecta GeoTIFF de Sentinel-2 al CRS y resolución del proyecto.
-    Bandas nativas a 10 m: reproyectar.
-    Bandas nativas a 20 m: bilineal + reproyectar.
+    Reproyecta GeoTIFF de Sentinel-2 de WGS84 a EPSG:3116.
+    Conserva la resolución nativa (~10 m) — no fuerza al grid de 10 m
+    del proyecto para evitar upsample artificial.
     """
     print("\n" + "="*70)
-    print("5. SENTINEL-2 → REPROYECCIÓN A EPSG:3116 / 10 m")
+    print("5. SENTINEL-2 → REPROYECCIÓN CRS A EPSG:3116 (resolución nativa)")
     print("="*70)
 
     patron = os.path.join(RAW_DIR, 'satelite', 'sentinel2', '*.tif')
@@ -741,8 +789,7 @@ def armonizar_sentinel2():
 
         print(f"  {nombre}...", end=' ', flush=True)
         try:
-            # Bilineal: válido tanto para bandas 10 m como 20 m (upsampling fino)
-            reproyectar_raster(src_path, dst_path, resampling_method='bilinear')
+            reproyectar_raster_nativo(src_path, dst_path, resampling_method='bilinear')
             print("OK")
         except Exception as e:
             print(f"Error: {e}")
@@ -751,16 +798,16 @@ def armonizar_sentinel2():
 
 
 # ══════════════════════════════════════════════════════════════════
-# 6. SENTINEL-1 — SOLO REPROYECCIÓN
+# 6. SENTINEL-1 — REPROYECCIÓN CRS (resolución nativa ~10 m)
 # ══════════════════════════════════════════════════════════════════
 
 def armonizar_sentinel1():
     """
-    Reproyecta Sentinel-1 GRD al CRS del proyecto.
-    Ya está en resolución 10 m nativa → solo cambio de CRS.
+    Reproyecta Sentinel-1 GRD de WGS84 a EPSG:3116.
+    Conserva la resolución nativa (~10 m) — solo cambio de CRS.
     """
     print("\n" + "="*70)
-    print("6. SENTINEL-1 → REPROYECCIÓN A EPSG:3116")
+    print("6. SENTINEL-1 → REPROYECCIÓN CRS A EPSG:3116 (resolución nativa)")
     print("="*70)
 
     patron = os.path.join(RAW_DIR, 'satelite', 'sentinel1', '*.tif')
@@ -781,7 +828,7 @@ def armonizar_sentinel1():
 
         print(f"  {nombre}...", end=' ', flush=True)
         try:
-            reproyectar_raster(src_path, dst_path, resampling_method='bilinear')
+            reproyectar_raster_nativo(src_path, dst_path, resampling_method='bilinear')
             print("OK")
         except Exception as e:
             print(f"Error: {e}")

@@ -66,6 +66,50 @@ for year in range(YEAR_START, YEAR_END + 1):
         })
 
 # ──────────────────────────────────────────────────────────────
+# TILES SENTINEL (para descarga a 10 m real)
+# SentinelHub limita a ~2500 px por lado. A 10 m → ~25 km por tile.
+# Cundinamarca (~184 km × 235 km) → ~8 × 10 = 80 tiles.
+# ──────────────────────────────────────────────────────────────
+SENTINEL_TILE_SIZE_DEG = 0.22  # ~24.5 km en latitud, cabe en 2500 px a 10 m
+
+def generar_tiles_sentinel(bbox=None, tile_size=None):
+    """
+    Divide un bbox [west, south, east, north] en sub-bboxes cuadrados.
+    Retorna lista de dicts: {'bbox': [w,s,e,n], 'label': 'r{row}_c{col}', 'size': (w_px, h_px)}
+    """
+    bbox = bbox or BBOX_WGS84
+    tile_size = tile_size or SENTINEL_TILE_SIZE_DEG
+    import math
+
+    west, south, east, north = bbox
+    n_cols = math.ceil((east - west) / tile_size)
+    n_rows = math.ceil((north - south) / tile_size)
+
+    tiles = []
+    for row in range(n_rows):
+        for col in range(n_cols):
+            t_west  = west  + col * tile_size
+            t_south = south + row * tile_size
+            t_east  = min(t_west  + tile_size, east)
+            t_north = min(t_south + tile_size, north)
+
+            # Tamaño en píxeles a ~10 m (1° lat ≈ 111,320 m)
+            w_m = (t_east - t_west) * 111_320 * math.cos(math.radians((t_south + t_north) / 2))
+            h_m = (t_north - t_south) * 111_320
+            w_px = max(1, round(w_m / 10))
+            h_px = max(1, round(h_m / 10))
+
+            tiles.append({
+                'bbox': [t_west, t_south, t_east, t_north],
+                'label': f'r{row:02d}_c{col:02d}',
+                'size': (w_px, h_px),
+            })
+
+    return tiles
+
+SENTINEL_TILES = generar_tiles_sentinel()
+
+# ──────────────────────────────────────────────────────────────
 # CREDENCIALES COPERNICUS DATA SPACE (CDSE)
 # Leídas desde extractores/.env — nunca hardcodear aquí.
 # ──────────────────────────────────────────────────────────────
