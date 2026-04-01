@@ -237,7 +237,7 @@ que-sembrar/
 │   ├── 01_armonizar_espacial.py        # ✅ Reproyección al grid 10 m EPSG:3116
 │   ├── 02_armonizar_temporal.py        # ✅ Agregación mensual → estadísticos semestrales
 │   ├── 03_feature_engineering.py       # ✅ Features derivadas (piso térmico, fertilidad, ETP…)
-│   └── 04_construir_vista_minable.py   # Pendiente
+│   └── 04_construir_vista_minable.py   # ✅ Tabla rectangular para ML (Parquet)
 │
 ├── entrenamiento/                      # Training pipeline
 │   ├── 01_eda_exploratorio.py
@@ -483,7 +483,7 @@ El diseño del sistema se fundamenta en el análisis de 15+ artículos científi
 - [x] Armonización espacial (`procesamiento/01_armonizar_espacial.py`)
 - [x] Agregación temporal mensual → semestral (`procesamiento/02_armonizar_temporal.py`)
 - [x] Feature engineering derivado (`procesamiento/03_feature_engineering.py`)
-- [ ] Construcción de la vista minable
+- [x] Construcción de la vista minable (`procesamiento/04_construir_vista_minable.py`)
 - [ ] Entrenamiento y evaluación de modelos
 - [ ] Desarrollo de API REST (FastAPI)
 - [ ] Desarrollo de interfaz web con mapa

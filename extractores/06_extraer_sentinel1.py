@@ -20,8 +20,9 @@ import os
 import sys
 import time
 import random
-import shutil
+import threading
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import (
@@ -77,11 +78,16 @@ N_BANDS = len(BAND_NAMES_S1)
 NODATA = 0.0
 
 
+def _tile_valido(path):
+    """Retorna True si el tile existe y tiene contenido (>0 bytes)."""
+    return os.path.exists(path) and os.path.getsize(path) > 0
+
+
 def descargar_tile(tile, mes, tile_dir):
     """Descarga un tile individual para un mes. Retorna ruta si exitoso, None si falla."""
     tile_file = os.path.join(tile_dir, f"tile_{tile['label']}.tif")
 
-    if os.path.exists(tile_file):
+    if _tile_valido(tile_file):
         return tile_file
 
     t_bbox = BBox(bbox=tile['bbox'], crs=CRS.WGS84)
@@ -157,6 +163,7 @@ def merge_tiles(tile_dir, out_file):
             count=mosaic.shape[0],
             compress='deflate',
             nodata=NODATA,
+            BIGTIFF='YES',
         )
 
         with rasterio.open(out_file, 'w', **profile) as dst:
@@ -170,8 +177,8 @@ def merge_tiles(tile_dir, out_file):
             ds.close()
 
 
-def descargar_mes(mes, tiles):
-    """Descarga todos los tiles de un mes y los fusiona."""
+def descargar_mes(mes, tiles, workers=5):
+    """Descarga todos los tiles de un mes en paralelo y los fusiona."""
     out_dir = DIRS['sat_sentinel1']
     out_file = os.path.join(out_dir, f"s1_backscatter_{mes['label']}.tif")
 
@@ -182,40 +189,46 @@ def descargar_mes(mes, tiles):
     tile_dir = os.path.join(out_dir, f"_tiles_{mes['label']}")
     os.makedirs(tile_dir, exist_ok=True)
 
-    existentes = sum(1 for t in tiles
-                     if os.path.exists(os.path.join(tile_dir, f"tile_{t['label']}.tif")))
+    # Tiles pendientes: faltantes o con 0 bytes (descarga interrumpida)
+    pendientes = [t for t in tiles
+                  if not _tile_valido(os.path.join(tile_dir, f"tile_{t['label']}.tif"))]
+    existentes = len(tiles) - len(pendientes)
 
-    print(f"  [{mes['label']}] {existentes}/{len(tiles)} tiles...", end='', flush=True)
+    if not pendientes:
+        print(f"  [{mes['label']}] Todos los tiles ya existen -> merge...", end='', flush=True)
+    else:
+        print(f"  [{mes['label']}] {existentes}/{len(tiles)} existentes, "
+              f"descargando {len(pendientes)} con {workers} workers...", end='', flush=True)
 
-    ok_count = existentes
-    fail_count = 0
+    lock = threading.Lock()
+    ok_count = [existentes]
+    fail_count = [0]
 
-    for i, tile in enumerate(tiles):
-        tile_file = os.path.join(tile_dir, f"tile_{tile['label']}.tif")
-        if os.path.exists(tile_file):
-            continue
-
+    def _descargar(tile):
         result = descargar_tile(tile, mes, tile_dir)
-        if result:
-            ok_count += 1
-        else:
-            fail_count += 1
+        with lock:
+            if result:
+                ok_count[0] += 1
+            else:
+                fail_count[0] += 1
+            done = ok_count[0] + fail_count[0]
+            if done % 10 == 0:
+                print(f" {ok_count[0]}/{len(tiles)}", end='', flush=True)
+        return result
 
-        if (i + 1) % 10 == 0:
-            print(f" {ok_count}/{len(tiles)}", end='', flush=True)
+    if pendientes:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            list(ex.map(_descargar, pendientes))
 
-        time.sleep(random.uniform(0.5, 1.5))
+    print(f" -> {ok_count[0]}/{len(tiles)} tiles", end='', flush=True)
 
-    print(f" → {ok_count}/{len(tiles)} tiles", end='', flush=True)
-
-    if fail_count > 0:
-        print(f" ({fail_count} fallidos)")
+    if fail_count[0] > 0:
+        print(f" ({fail_count[0]} fallidos)")
         print(f"    Tiles guardados en {tile_dir}. Reejecutar para reintentar.")
         return
 
-    print(" → merge...", end='', flush=True)
+    print(" -> merge...", end='', flush=True)
     if merge_tiles(tile_dir, out_file):
-        shutil.rmtree(tile_dir, ignore_errors=True)
         size_mb = os.path.getsize(out_file) / (1024 * 1024)
         print(f" OK ({size_mb:.0f} MB)")
     else:
@@ -230,6 +243,10 @@ def main():
         '--mes', type=str, default=None,
         help='Mes específico a descargar (formato: YYYY_MM, ej: 2020_01)'
     )
+    parser.add_argument(
+        '--workers', type=int, default=5,
+        help='Número de tiles en paralelo por mes (default: 5, max recomendado: 10)'
+    )
     args = parser.parse_args()
 
     crear_directorios()
@@ -238,7 +255,7 @@ def main():
     print("=" * 70)
     print("DESCARGA SENTINEL-1 BACKSCATTER SAR — 10 m REAL (TILES)")
     print(f"Bandas: {', '.join(BAND_NAMES_S1)}")
-    print(f"Tiles por mes: {len(tiles)}")
+    print(f"Tiles por mes: {len(tiles)}  |  Workers: {args.workers}")
     if args.mes:
         meses = [m for m in MESES if m['label'] == args.mes]
         if not meses:
@@ -248,11 +265,13 @@ def main():
     else:
         meses = MESES
         print(f"Meses: {len(meses)} ({meses[0]['label']} a {meses[-1]['label']})")
-    print(f"Total requests estimados: {len(meses) * len(tiles):,}")
+    t_tile = 4.0
+    t_total = (len(meses) * len(tiles) * t_tile) / args.workers / 60
+    print(f"Tiempo estimado: ~{t_total:.0f} min")
     print("=" * 70)
 
     for mes in meses:
-        descargar_mes(mes, tiles)
+        descargar_mes(mes, tiles, workers=args.workers)
 
     print("\n" + "=" * 70)
     print("DESCARGA SENTINEL-1 COMPLETADA")

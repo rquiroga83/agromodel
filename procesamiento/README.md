@@ -290,6 +290,81 @@ processed/engineered/
 
 ---
 
+## 04_construir_vista_minable.py
+
+Construye la **tabla rectangular** (vista minable) que alimenta directamente los modelos de ML. Cada fila = un (píxel, semestre). Cada columna = un feature o target.
+
+### Pipeline
+
+| Paso | Operación | Detalle |
+|------|-----------|---------|
+| 1 | Máscara válida | Píxeles con datos en DEM (excluye fuera de Cundinamarca) |
+| 2 | Rasterizar Monitoreo UPRA | Polígonos georreferenciados → máscara de cultivos por semestre |
+| 3 | Rasterizar SIPRA | Polígonos de aptitud → clases por cultivo (filtrado a Cundinamarca) |
+| 4 | Cargar EVA | Cultivos × municipio × semestre con rendimiento y score de aptitud |
+| 5 | Muestreo estratificado | ~500K píxeles por (piso_termico × pendiente_clase × monitoreo) |
+| 6 | Extraer features | 74+ valores por píxel del stack de rasters (estáticos + semestrales) |
+| 7 | Asignar target | Prioridad: monitoreo (conf=1.0) > EVA (conf=0.7) > SIPRA (conf=0.5) |
+| 8 | Exportar | Parquet comprimido + catálogo de cultivos JSON |
+
+### Esquema de salida
+
+```
+pixel_id        INT64       # Identificador único
+x               FLOAT64     # Coordenada X (EPSG:3116)
+y               FLOAT64     # Coordenada Y (EPSG:3116)
+semestre        STRING      # '2020A', '2020B', ..., '2025B'
+# ── 74+ features (estáticos + semestrales + derivados) ──
+elevacion       FLOAT32     # Topografía
+pendiente       FLOAT32
+...
+sg_phh2o        FLOAT32     # SoilGrids
+sg_nitrogen     FLOAT32
+...
+temperatura_media  FLOAT32  # Agregados semestrales
+chirps_acum     FLOAT32
+s2_ndvi_media   FLOAT32
+...
+piso_termico    INT8        # Features derivadas
+indice_aridez   FLOAT32
+# ── target ──
+cultivo         STRING      # Nombre del cultivo
+cultivo_id      INT16       # Label encoded
+confianza       FLOAT32     # 0.0–1.0
+fuente          STRING      # 'monitoreo' | 'eva' | 'sipra'
+rendimiento_tha FLOAT32     # Rendimiento histórico (t/ha)
+```
+
+### Dependencias
+
+```bash
+pip install rasterio geopandas pandas numpy pyarrow pyproj
+```
+
+### Ejecución
+
+```bash
+# Pipeline completo
+uv run procesamiento/04_construir_vista_minable.py
+
+# Limitar muestreo (útil para pruebas)
+uv run procesamiento/04_construir_vista_minable.py --max-pixeles 50000
+
+# Pasos individuales (inspección)
+uv run procesamiento/04_construir_vista_minable.py --step preparar   # Máscaras
+uv run procesamiento/04_construir_vista_minable.py --step muestrear  # Muestreo
+```
+
+### Salida
+
+```
+vista_minable/
+├── vista_minable_full.parquet    # Tabla completa
+└── catalogo_cultivos.json        # Mapeo cultivo → ID
+```
+
+---
+
 ## Orden completo de procesamiento
 
 ```bash
@@ -302,6 +377,6 @@ uv run procesamiento/02_armonizar_temporal.py
 # 3. Feature engineering (features derivadas)
 uv run procesamiento/03_feature_engineering.py
 
-# 4. Vista minable (pendiente)
-# uv run procesamiento/04_construir_vista_minable.py
+# 4. Vista minable (tabla Parquet para ML)
+uv run procesamiento/04_construir_vista_minable.py
 ```
