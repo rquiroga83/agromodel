@@ -4,16 +4,16 @@
 Armonización espacial de todas las fuentes de datos crudas.
 
 Entrada : extractores/raw/  (múltiples CRS, resoluciones, formatos)
-Salida  : processed/        (todas las capas en EPSG:3116, 10 m × 10 m)
+Salida  : processed/        (todas las capas en EPSG:3116, {RESOLUCION_M} m)
 
 Operaciones por fuente:
   1. Estaciones IDEAM  → Kriging ordinario + corrección gradiente adiabático
   2. CHIRPS            → Reproyección + resampling bilineal desde ~5.3 km
   3. SoilGrids         → Bilineal (continuos) / nearest-neighbor (texturas)
   4. IGAC vectorial    → Rasterización de polígonos categóricos
-  5. Sentinel-2        → Reproyección (bandas 20 m → bilineal a 10 m)
-  6. Sentinel-1        → Solo reproyección (ya en 10 m nativo)
-  7. DEM + derivadas   → Derivadas a 30 m PRIMERO, luego resamplear a 10 m
+  5. Sentinel-2        → Reproyección a resolución objetivo
+  6. Sentinel-1        → Solo reproyección a resolución objetivo
+  7. DEM + derivadas   → Derivadas a 30 m PRIMERO, luego resamplear a resolución objetivo
 
 Uso:
     python 01_armonizar_espacial.py                # Armoniza todo
@@ -37,14 +37,13 @@ import warnings
 import numpy as np
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'extractores'))
-from config import BBOX_WGS84, DIRS, YEAR_START, YEAR_END, crear_directorios
+from config import BBOX_WGS84, DIRS, YEAR_START, YEAR_END, RESOLUCION_M, crear_directorios
 
 # ══════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN ESPACIAL DEL PROYECTO
 # ══════════════════════════════════════════════════════════════════
 
 CRS_PROYECTO    = 'EPSG:3116'   # MAGNA-SIRGAS Colombia Bogotá
-RESOLUCION_M    = 10            # 10 m × 10 m (alineado con Sentinel-2)
 NODATA_RASTER   = -9999.0
 
 # Directorio base del repositorio
@@ -101,7 +100,7 @@ def get_grid_cundinamarca():
 
 def reproyectar_raster(src_path, dst_path, resampling_method='bilinear', dtype=None):
     """
-    Reproyecta y remuestrea un GeoTIFF al grid objetivo del proyecto (10 m).
+    Reproyecta y remuestrea un GeoTIFF al grid objetivo del proyecto.
 
     Args:
         src_path        : ruta del raster de entrada
@@ -151,7 +150,7 @@ def reproyectar_raster(src_path, dst_path, resampling_method='bilinear', dtype=N
 def reproyectar_raster_nativo(src_path, dst_path, resampling_method='bilinear'):
     """
     Reproyecta un GeoTIFF a EPSG:3116 conservando la resolución nativa.
-    No fuerza el grid de 10 m del proyecto — calcula el transform óptimo
+    No fuerza el grid del proyecto — calcula el transform óptimo
     para la resolución original del archivo.
     """
     import rasterio
@@ -202,7 +201,7 @@ def reproyectar_raster_nativo(src_path, dst_path, resampling_method='bilinear'):
 
 def armonizar_ideam(variable=None):
     """
-    Interpola estaciones IDEAM a ráster 10 m usando Kriging Ordinario.
+    Interpola estaciones IDEAM a ráster usando Kriging Ordinario.
 
     Variables: temperatura (con corrección adiabática), precipitación, humedad.
     Salida: un GeoTIFF por variable×semestre en processed/clima/ideam/
@@ -231,10 +230,10 @@ def armonizar_ideam(variable=None):
 
     # ── Resolución de Kriging (intermedia) ────────────────────────
     # Con 30-60 estaciones sobre 24,000 km² el radio de influencia es
-    # del orden de decenas de km. Hacer Kriging a 10 m crearía un grid
-    # de 476M píxeles × N_estaciones = cientos de GiB en RAM.
+    # del orden de decenas de km. Hacer Kriging a resolución final crearía un grid
+    # demasiado grande en RAM.
     # Solución: Kriging a 1 km (grid de ~480 × 550 = 264K píxeles)
-    # luego resampling bilineal a 10 m.
+    # luego resampling bilineal a resolución del proyecto.
     RESOLUCION_KRIGING_M = 1000
 
     dst_transform, dst_width, dst_height, dst_crs = get_grid_cundinamarca()
@@ -260,7 +259,7 @@ def armonizar_ideam(variable=None):
           f"→ bilineal a {RESOLUCION_M} m")
 
     # ── Cargar DEM a resolución de Kriging (para corrección adiabática) ──
-    dem_path = os.path.join(PROC_DIRS['dem'], 'dem_cundinamarca_10m.tif')
+    dem_path = os.path.join(PROC_DIRS['dem'], f'dem_cundinamarca_{RESOLUCION_M}m.tif')
     dem_krig = None
     if os.path.exists(dem_path):
         from rasterio.warp import reproject as _reproject, Resampling as _Resampling
@@ -446,7 +445,7 @@ def armonizar_ideam(variable=None):
 
                 z_krig[np.isnan(z_krig)] = NODATA_RASTER
 
-                # ── Paso 2: Guardar a 1 km y luego resamplear bilineal a 10 m ──
+                # ── Paso 2: Resamplear de 1 km a resolución del proyecto ──
                 from rasterio.warp import reproject as _reproject, Resampling as _Resampling
 
                 profile_krig = dict(
@@ -455,7 +454,7 @@ def armonizar_ideam(variable=None):
                     width=krig_width, height=krig_height,
                     nodata=NODATA_RASTER, compress='deflate',
                 )
-                profile_10m = dict(
+                profile_dst = dict(
                     driver='GTiff', dtype='float32', count=1,
                     crs=dst_crs, transform=dst_transform,
                     width=dst_width, height=dst_height,
@@ -464,20 +463,20 @@ def armonizar_ideam(variable=None):
 
                 os.makedirs(PROC_DIRS['ideam'], exist_ok=True)
 
-                # Resamplear directamente en memoria de 1 km → 10 m
-                z_10m = np.empty((dst_height, dst_width), dtype=np.float32)
+                # Resamplear directamente en memoria de 1 km a resolución del proyecto
+                z_dst = np.empty((dst_height, dst_width), dtype=np.float32)
                 _reproject(
                     source=z_krig,
-                    destination=z_10m,
+                    destination=z_dst,
                     src_transform=krig_transform, src_crs=dst_crs,
                     dst_transform=dst_transform,  dst_crs=dst_crs,
                     src_nodata=NODATA_RASTER, dst_nodata=NODATA_RASTER,
                     resampling=_Resampling.bilinear,
                 )
 
-                with rasterio.open(out_file, 'w', **profile_10m) as dst:
-                    dst.write(z_10m, 1)
-                print(f"guardado ({krig_width}×{krig_height} px Kriging → {dst_width}×{dst_height} px 10m).")
+                with rasterio.open(out_file, 'w', **profile_dst) as dst:
+                    dst.write(z_dst, 1)
+                print(f"guardado ({krig_width}x{krig_height} px Kriging -> {dst_width}x{dst_height} px {RESOLUCION_M}m).")
             except Exception as e:
                 print(f"error: {e}")
 
@@ -491,10 +490,10 @@ def armonizar_ideam(variable=None):
 def armonizar_chirps():
     """
     Reproyecta y remuestrea los GeoTIFF mensuales de CHIRPS (~5.3 km)
-    al grid 10 m del proyecto con resampling bilineal.
+    al grid del proyecto con resampling bilineal.
     """
     print("\n" + "="*70)
-    print("2. CHIRPS → BILINEAL A 10 m")
+    print(f"2. CHIRPS -> BILINEAL A {RESOLUCION_M} m")
     print("="*70)
 
     patron = os.path.join(RAW_DIR, 'clima', 'chirps', '*.tif')
@@ -529,12 +528,12 @@ def armonizar_chirps():
 
 def armonizar_soilgrids():
     """
-    Reproyecta SoilGrids de 250 m a 10 m.
+    Reproyecta SoilGrids de 250 m a resolución del proyecto.
     - Propiedades continuas (ph, soc, bdod, cec, nitrogen, ocd): bilineal
     - Texturas (clay, sand, silt): nearest-neighbor + normalización a 100%
     """
     print("\n" + "="*70)
-    print("3. SOILGRIDS → 10 m")
+    print(f"3. SOILGRIDS -> {RESOLUCION_M} m")
     print("="*70)
 
     TEXTURA_PROPS = {'clay', 'sand', 'silt'}
@@ -615,7 +614,7 @@ def _normalizar_texturas_soilgrids():
 
 def armonizar_igac():
     """
-    Rasteriza los GeoJSON del IGAC al grid 10 m del proyecto.
+    Rasteriza los GeoJSON del IGAC al grid del proyecto.
     - Propiedades (suelo): UCSuelo, subgrupo taxonómico, paisaje, clima, relieve, material parental
     - Vocación de Uso: código de vocación (categórico)
 
@@ -623,7 +622,7 @@ def armonizar_igac():
     para tolerar variaciones entre versiones del dataset IGAC.
     """
     print("\n" + "="*70)
-    print("4. IGAC VECTORIAL → RASTERIZACIÓN A 10 m")
+    print(f"4. IGAC VECTORIAL -> RASTERIZACION A {RESOLUCION_M} m")
     print("="*70)
 
     try:
@@ -758,17 +757,16 @@ def armonizar_igac():
 
 
 # ══════════════════════════════════════════════════════════════════
-# 5. SENTINEL-2 — REPROYECCIÓN CRS (resolución nativa ~10 m)
+# 5. SENTINEL-2 — REPROYECCIÓN CRS (resolución nativa)
 # ══════════════════════════════════════════════════════════════════
 
 def armonizar_sentinel2():
     """
     Reproyecta GeoTIFF de Sentinel-2 de WGS84 a EPSG:3116.
-    Conserva la resolución nativa (~10 m) — no fuerza al grid de 10 m
-    del proyecto para evitar upsample artificial.
+    Conserva la resolución nativa — no fuerza al grid del proyecto.
     """
     print("\n" + "="*70)
-    print("5. SENTINEL-2 → REPROYECCIÓN CRS A EPSG:3116 (resolución nativa)")
+    print("5. SENTINEL-2 -> REPROYECCION CRS A EPSG:3116 (resolucion nativa)")
     print("="*70)
 
     patron = os.path.join(RAW_DIR, 'satelite', 'sentinel2', '*.tif')
@@ -798,16 +796,16 @@ def armonizar_sentinel2():
 
 
 # ══════════════════════════════════════════════════════════════════
-# 6. SENTINEL-1 — REPROYECCIÓN CRS (resolución nativa ~10 m)
+# 6. SENTINEL-1 — REPROYECCIÓN CRS (resolución nativa)
 # ══════════════════════════════════════════════════════════════════
 
 def armonizar_sentinel1():
     """
     Reproyecta Sentinel-1 GRD de WGS84 a EPSG:3116.
-    Conserva la resolución nativa (~10 m) — solo cambio de CRS.
+    Conserva la resolución nativa — solo cambio de CRS.
     """
     print("\n" + "="*70)
-    print("6. SENTINEL-1 → REPROYECCIÓN CRS A EPSG:3116 (resolución nativa)")
+    print("6. SENTINEL-1 -> REPROYECCION CRS A EPSG:3116 (resolucion nativa)")
     print("="*70)
 
     patron = os.path.join(RAW_DIR, 'satelite', 'sentinel1', '*.tif')
@@ -842,14 +840,14 @@ def armonizar_sentinel1():
 
 def armonizar_dem():
     """
-    Reproyecta el DEM Copernicus GLO-30 (30 m) a 10 m.
+    Reproyecta el DEM Copernicus GLO-30 (30 m) a resolución del proyecto.
 
     Estrategia: calcular derivadas (pendiente, aspecto, curvatura, TWI)
-    a la resolución ORIGINAL de 30 m PRIMERO, luego resamplear todo a 10 m.
+    a la resolución ORIGINAL de 30 m PRIMERO, luego resamplear.
     Esto evita artefactos de interpolación en derivadas de segundo orden.
     """
     print("\n" + "="*70)
-    print("7. DEM COPERNICUS → DERIVADAS A 30 m + RESAMPLING A 10 m")
+    print(f"7. DEM COPERNICUS -> DERIVADAS A 30 m + RESAMPLING A {RESOLUCION_M} m")
     print("="*70)
 
     try:
@@ -876,7 +874,7 @@ def armonizar_dem():
 
     # Reproyectar cada banda individualmente
     for i, nombre in enumerate(nombres_bandas[:n_bandas], start=1):
-        out_path = os.path.join(PROC_DIRS['dem'], f'dem_{nombre}_10m.tif')
+        out_path = os.path.join(PROC_DIRS['dem'], f'dem_{nombre}_{RESOLUCION_M}m.tif')
         if os.path.exists(out_path):
             print(f"  Ya existe: {os.path.basename(out_path)}")
             continue
@@ -916,8 +914,8 @@ def armonizar_dem():
             print(f"Error: {e}")
 
     # Archivo de elevación para uso en corrección adiabática de temperatura
-    elev_src = os.path.join(PROC_DIRS['dem'], 'dem_elevacion_10m.tif')
-    elev_dst = os.path.join(PROC_DIRS['dem'], 'dem_cundinamarca_10m.tif')
+    elev_src = os.path.join(PROC_DIRS['dem'], f'dem_elevacion_{RESOLUCION_M}m.tif')
+    elev_dst = os.path.join(PROC_DIRS['dem'], f'dem_cundinamarca_{RESOLUCION_M}m.tif')
     if os.path.exists(elev_src) and not os.path.exists(elev_dst):
         import shutil
         shutil.copy2(elev_src, elev_dst)
@@ -1003,7 +1001,7 @@ def validar_capas():
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Armonización espacial de datos crudos → processed/ (EPSG:3116, 10 m)'
+        description=f'Armonizacion espacial de datos crudos -> processed/ (EPSG:3116, {RESOLUCION_M} m)'
     )
     parser.add_argument(
         '--step',

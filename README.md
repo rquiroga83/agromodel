@@ -31,8 +31,8 @@
 |---------|---------|
 | **Región objetivo** | Cundinamarca, Colombia (24,210 km², 116 municipios) |
 | **Rango altitudinal** | 200 m (Valle del Magdalena) a 3,500+ m (Páramos) |
-| **Ventana temporal** | 2019–2024 (6 años, 12 semestres agrícolas) |
-| **Resolución espacial** | 10 m × 10 m (alineada con Sentinel-2) |
+| **Ventana temporal** | 2020–2025 (6 años, 12 semestres agrícolas) |
+| **Resolución espacial** | 50 m × 50 m (configurable via `RESOLUCION_M` en `config.py`) |
 | **Catálogo de cultivos** | ~40–200 cultivos (según filtro de frecuencia) |
 | **Tiempo de inferencia** | < 2 segundos por consulta |
 | **Explainabilidad** | SHAP + LIME + Contrafactuales |
@@ -107,17 +107,17 @@ Este sistema transforma datos públicos abiertos (IDEAM, IGAC, UPRA, Copernicus)
 | **Climática** | CHIRPS v2 | GeoTIFF | Precipitación mensual satelital | ~5.3 km, desde 1981 |
 | **Edafológica** | IGAC | ArcGIS REST → GeoJSON | pH, Al, P, K, fertilidad, vocación de uso | 1:100.000 |
 | **Edafológica** | SoilGrids 2.0 (ISRIC) | GeoTIFF (COG) | Clay, sand, silt, bdod, soc, cec, nitrogen | 250 m global |
-| **Satelital** | Sentinel-2 L2A (CDSE) | GeoTIFF via SentinelHub | NDVI, GNDVI, EVI, NDWI, MSAVI, BSI, SAVI | 10 m, 5 días revisita |
-| **Satelital** | Sentinel-1 GRD (CDSE) | GeoTIFF via SentinelHub | VV, VH, ratio VH/VV (dB) | 10 m, penetra nubes |
-| **Topográfica** | Copernicus DEM GLO-30 | GeoTIFF via CDSE | Elevación, pendiente, aspecto, curvatura, TWI | 30 m |
+| **Satelital** | Sentinel-2 L2A (CDSE) | GeoTIFF via SentinelHub | NDVI, GNDVI, EVI, NDWI, MSAVI, BSI, SAVI | 50 m (configurable), 4 tiles/mes |
+| **Satelital** | Sentinel-1 GRD (CDSE) | GeoTIFF via SentinelHub | VV, VH, ratio VH/VV (dB) | 50 m (configurable), 4 tiles/mes |
+| **Topográfica** | Copernicus DEM GLO-30 | GeoTIFF via CDSE | Elevación, pendiente, aspecto, curvatura, TWI | 30 m nativo, remuestreado a 50 m |
 
 ### 4.2 Target (Etiquetas de Entrenamiento)
 
 | Fuente | Resolución | Periodo | Uso |
 |--------|-----------|---------|-----|
-| **EVA** (UPRA/MADR) | Municipal | 2007–2024 | Cultivo + rendimiento por municipio-semestre |
-| **Monitoreo UPRA** | Parcela (~25 m) | 2021–2023 | Polígonos georreferenciados de papa, maíz, arroz, cacao |
-| **SIPRA Aptitud** | 1:100.000 | Estático | Aptitud Alta/Media/Baja/No Apta por cultivo |
+| **EVA** (UPRA/MADR) | Municipal | 2007–2024 | Cultivo + rendimiento por municipio-semestre (confianza=0.7) |
+| **Monitoreo UPRA** | Parcela (~25 m) | 2021–2023 | Polígonos georreferenciados de papa, maíz, arroz, cacao (confianza=1.0) |
+| **SIPRA Aptitud** | 1:100.000 | Estático | Aptitud Alta/Media/Baja/No Apta por cultivo (confianza=0.2–0.5) |
 
 ---
 
@@ -234,7 +234,7 @@ que-sembrar/
 │           └── sipra/
 │
 ├── procesamiento/                      # Armonización y feature engineering
-│   ├── 01_armonizar_espacial.py        # ✅ Reproyección al grid 10 m EPSG:3116
+│   ├── 01_armonizar_espacial.py        # ✅ Reproyección al grid 50 m EPSG:3116
 │   ├── 02_armonizar_temporal.py        # ✅ Agregación mensual → estadísticos semestrales
 │   ├── 03_feature_engineering.py       # ✅ Features derivadas (piso térmico, fertilidad, ETP…)
 │   └── 04_construir_vista_minable.py   # ✅ Tabla rectangular para ML (Parquet)
@@ -258,7 +258,7 @@ que-sembrar/
 │
 ├── models/                             # Modelos entrenados (.pkl, .pt) — no en git
 │
-├── processed/                          # Capas armonizadas a 10 m EPSG:3116 — no en git
+├── processed/                          # Capas armonizadas a 50 m EPSG:3116 — no en git
 │   ├── clima/
 │   │   ├── ideam/                      # {variable}_{YYYY_MM}_kriging.tif (mensuales)
 │   │   └── chirps/                     # chirps_{YYYY_MM}.tif (mensuales)
@@ -266,8 +266,8 @@ que-sembrar/
 │   │   ├── soilgrids/
 │   │   └── igac/
 │   ├── satelite/
-│   │   ├── sentinel2/                  # s2_indices_{YYYY_MM}.tif (mensuales, 10 m real)
-│   │   └── sentinel1/                  # s1_backscatter_{YYYY_MM}.tif (mensuales, 10 m real)
+│   │   ├── sentinel2/                  # s2_indices_{YYYY_MM}.tif (mensuales, 50 m)
+│   │   └── sentinel1/                  # s1_backscatter_{YYYY_MM}.tif (mensuales, 50 m)
 │   ├── topo/
 │   ├── temporal/                       # Estadísticos semestrales (02_armonizar_temporal)
 │   │   ├── clima/ideam/               # {variable}_{agg}_{YYYY[AB]}.tif
@@ -286,12 +286,12 @@ que-sembrar/
 ├── vista_minable/                      # Tabla final de entrenamiento — no en git
 │
 ├── docs/                               # Documentación técnica
+│   ├── analisis_diseno_variables.md    # Decisiones de diseño y justificación científica
+│   ├── analisis_estadistico_eda.ipynb  # EDA con ydata_profiling (CRISP-DM)
 │   ├── armonizacion_espacial.md        # Detalle de reproyección y kriging
+│   ├── procesamiento_conceptual.md     # Diseño conceptual del pipeline
 │   ├── vista_minable_que_sembrar.html
-│   ├── datos_etiquetado_target.html
-│   ├── modelos_ia_recomendados.html
-│   ├── arquitectura_inferencia.html
-│   └── estrategia_preparacion_datos.html
+│   └── *.html                          # Documentación adicional (no en git)
 │
 └── tests/                              # Tests unitarios y de integración
 ```
@@ -302,7 +302,7 @@ que-sembrar/
 
 ### Requisitos del Sistema
 
-- Python 3.10+
+- Python 3.12+ (<3.14)
 - 16 GB RAM mínimo (32 GB recomendado para entrenamiento)
 - 50 GB de disco para datos crudos
 - GPU opcional (acelera TabNet y LSTM, no es requerido)
@@ -312,47 +312,37 @@ que-sembrar/
 ```bash
 git clone https://github.com/<org>/que-sembrar.git
 cd que-sembrar
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
+
+# Opción 1: Con Anaconda (recomendado en Windows)
+conda create -n agroplus python=3.12
+conda activate agroplus
 pip install -r requirements.txt
+
+# Opción 2: Con uv
+uv sync
 ```
 
 ### Dependencias Principales
 
+Definidas en `pyproject.toml`. Las principales:
+
 ```
 # Geoespacial
-rasterio>=1.3
-geopandas>=0.14
-pyproj>=3.6
-sentinelhub>=3.10
-pysheds>=0.3
+rasterio>=1.5, geopandas>=1.1, pyproj>=3.7, sentinelhub>=3.11, pysheds>=0.5, pykrige>=1.7
 
-# ML / DL
-scikit-learn>=1.4
-xgboost>=2.0
-lightgbm>=4.0
-pytorch-tabnet>=4.1
-torch>=2.0
-optuna>=3.5
+# Ciencia de datos
+numpy>=1.26, pandas>=2.2,<3, scipy>=1.13,<1.17, matplotlib>=3.9, seaborn>=0.13
 
-# Explainabilidad
-shap>=0.44
-lime>=0.2
+# EDA
+ydata-profiling
 
-# API
-fastapi>=0.110
-uvicorn>=0.27
-
-# Utilidades
-pandas>=2.1
-numpy>=1.26
-requests>=2.31
+# ML / DL (por implementar)
+scikit-learn, xgboost, lightgbm, pytorch-tabnet, torch, optuna
 ```
 
 ### Configuración de Credenciales
 
-Editar `extractores/config.py`:
-- **CDSE (Copernicus):** Las credenciales OAuth ya están configuradas
+- **CDSE (Copernicus):** Credenciales OAuth en archivo `.env` (no en repositorio). Requerido por Sentinel-1, Sentinel-2 y DEM.
 - **Google Earth Engine (opcional):** Ejecutar `earthengine authenticate`
 - **datos.gov.co:** Acceso público, no requiere autenticación
 
@@ -480,10 +470,12 @@ El diseño del sistema se fundamenta en el análisis de 15+ artículos científi
 - [x] Diseño de modelos de IA justificado por estado del arte
 - [x] Scripts de extracción de datos (8 extractores)
 - [x] Estrategia de preparación de datos y construcción de vista minable
-- [x] Armonización espacial (`procesamiento/01_armonizar_espacial.py`)
+- [x] Armonización espacial a 50 m (`procesamiento/01_armonizar_espacial.py`)
 - [x] Agregación temporal mensual → semestral (`procesamiento/02_armonizar_temporal.py`)
 - [x] Feature engineering derivado (`procesamiento/03_feature_engineering.py`)
 - [x] Construcción de la vista minable (`procesamiento/04_construir_vista_minable.py`)
+- [x] Análisis exploratorio de datos (EDA con ydata_profiling — `docs/analisis_estadistico_eda.ipynb`)
+- [x] Documento técnico de diseño y variables (`docs/analisis_diseno_variables.md`)
 - [ ] Entrenamiento y evaluación de modelos
 - [ ] Desarrollo de API REST (FastAPI)
 - [ ] Desarrollo de interfaz web con mapa

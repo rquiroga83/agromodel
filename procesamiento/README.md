@@ -368,7 +368,7 @@ vista_minable/
 ## Orden completo de procesamiento
 
 ```bash
-# 1. Armonización espacial (mensual, 10 m, EPSG:3116)
+# 1. Armonización espacial (mensual, 50 m, EPSG:3116)
 uv run procesamiento/01_armonizar_espacial.py
 
 # 2. Agregación temporal (mensual → estadísticos semestrales)

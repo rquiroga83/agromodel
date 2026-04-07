@@ -35,9 +35,10 @@ except ImportError:
 # ──────────────────────────────────────────────────────────────
 # ÁREA DE INTERÉS — Cundinamarca (WGS84)
 # ──────────────────────────────────────────────────────────────
-BBOX_WGS84 = [-74.89, 3.73, -73.05, 5.84]   # [west, south, east, north]
-DEPT_DANE  = '25'                             # Código DANE de Cundinamarca
-DEPT_NAME  = 'CUNDINAMARCA'
+BBOX_WGS84    = [-74.89, 3.73, -73.05, 5.84]   # [west, south, east, north]
+RESOLUCION_M  = 50                              # Resolución del proyecto en metros
+DEPT_DANE     = '25'                             # Código DANE de Cundinamarca
+DEPT_NAME     = 'CUNDINAMARCA'
 
 # ──────────────────────────────────────────────────────────────
 # VENTANA TEMPORAL
@@ -66,38 +67,51 @@ for year in range(YEAR_START, YEAR_END + 1):
         })
 
 # ──────────────────────────────────────────────────────────────
-# TILES SENTINEL (para descarga a 10 m real)
-# SentinelHub limita a ~2500 px por lado. A 10 m → ~25 km por tile.
-# Cundinamarca (~184 km × 235 km) → ~8 × 10 = 80 tiles.
+# TILES SENTINEL
+# SentinelHub limita a ~2500 px por lado.
+# A 10 m → ~25 km por tile (~80 tiles para Cundinamarca).
+# A 50 m → ~125 km por tile (~4 tiles para Cundinamarca).
 # ──────────────────────────────────────────────────────────────
-SENTINEL_TILE_SIZE_DEG = 0.22  # ~24.5 km en latitud, cabe en 2500 px a 10 m
+SENTINEL_GSD_M = RESOLUCION_M  # usa la resolución del proyecto
+SENTINEL_MAX_PX = 2500        # límite de SentinelHub por lado
 
-def generar_tiles_sentinel(bbox=None, tile_size=None):
+def generar_tiles_sentinel(bbox=None, gsd_m=None):
     """
     Divide un bbox [west, south, east, north] en sub-bboxes cuadrados.
+    El tamaño del tile se calcula para no superar SENTINEL_MAX_PX px por lado
+    a la resolución gsd_m indicada.
     Retorna lista de dicts: {'bbox': [w,s,e,n], 'label': 'r{row}_c{col}', 'size': (w_px, h_px)}
     """
-    bbox = bbox or BBOX_WGS84
-    tile_size = tile_size or SENTINEL_TILE_SIZE_DEG
     import math
+    bbox  = bbox  or BBOX_WGS84
+    gsd_m = gsd_m or SENTINEL_GSD_M
 
     west, south, east, north = bbox
-    n_cols = math.ceil((east - west) / tile_size)
-    n_rows = math.ceil((north - south) / tile_size)
+    lat_mid = (south + north) / 2
+
+    # metros por grado en cada eje
+    m_per_deg_lat = 111_320
+    m_per_deg_lon = 111_320 * math.cos(math.radians(lat_mid))
+
+    # tamaño máximo de tile en grados para no superar SENTINEL_MAX_PX
+    max_tile_deg_lat = (SENTINEL_MAX_PX * gsd_m) / m_per_deg_lat
+    max_tile_deg_lon = (SENTINEL_MAX_PX * gsd_m) / m_per_deg_lon
+
+    n_rows = math.ceil((north - south) / max_tile_deg_lat)
+    n_cols = math.ceil((east  - west)  / max_tile_deg_lon)
 
     tiles = []
     for row in range(n_rows):
         for col in range(n_cols):
-            t_west  = west  + col * tile_size
-            t_south = south + row * tile_size
-            t_east  = min(t_west  + tile_size, east)
-            t_north = min(t_south + tile_size, north)
+            t_west  = west  + col * max_tile_deg_lon
+            t_south = south + row * max_tile_deg_lat
+            t_east  = min(t_west  + max_tile_deg_lon, east)
+            t_north = min(t_south + max_tile_deg_lat, north)
 
-            # Tamaño en píxeles a ~10 m (1° lat ≈ 111,320 m)
-            w_m = (t_east - t_west) * 111_320 * math.cos(math.radians((t_south + t_north) / 2))
-            h_m = (t_north - t_south) * 111_320
-            w_px = max(1, round(w_m / 10))
-            h_px = max(1, round(h_m / 10))
+            w_m = (t_east - t_west) * m_per_deg_lon
+            h_m = (t_north - t_south) * m_per_deg_lat
+            w_px = max(1, round(w_m / gsd_m))
+            h_px = max(1, round(h_m / gsd_m))
 
             tiles.append({
                 'bbox': [t_west, t_south, t_east, t_north],

@@ -39,7 +39,7 @@ import warnings
 import numpy as np
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'extractores'))
-from config import YEAR_START, YEAR_END, SEMESTRES
+from config import YEAR_START, YEAR_END, SEMESTRES, RESOLUCION_M
 
 # ══════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
@@ -99,7 +99,7 @@ def calcular_piso_termico():
     print("1. PISO TÉRMICO")
     print("="*70)
 
-    dem_path = os.path.join(PROC_DIR, 'topo', 'dem_elevacion_10m.tif')
+    dem_path = os.path.join(PROC_DIR, 'topo', f'dem_elevacion_{RESOLUCION_M}m.tif')
     out_path = os.path.join(ENG_DIR, 'piso_termico.tif')
 
     if os.path.exists(out_path):

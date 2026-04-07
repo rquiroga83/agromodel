@@ -47,7 +47,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'extractores'))
-from config import SEMESTRES, BBOX_WGS84, DEPT_DANE
+from config import SEMESTRES, BBOX_WGS84, DEPT_DANE, RESOLUCION_M
 
 # ==================================================================
 # CONFIGURACION
@@ -83,7 +83,7 @@ def _leer_raster(path, banda=1):
 def _get_transform_shape():
     """Lee el transform y shape del grid de referencia desde el DEM."""
     import rasterio
-    dem_path = os.path.join(PROC_DIR, 'topo', 'dem_elevacion_10m.tif')
+    dem_path = os.path.join(PROC_DIR, 'topo', f'dem_elevacion_{RESOLUCION_M}m.tif')
     with rasterio.open(dem_path) as src:
         return src.transform, src.height, src.width, src.crs, src.profile.copy()
 
@@ -101,7 +101,7 @@ def crear_mascara_valida():
     print("PASO 1: MASCARA VÁLIDA DEL DEPARTAMENTO")
     print("=" * 70)
 
-    dem_path = os.path.join(PROC_DIR, 'topo', 'dem_elevacion_10m.tif')
+    dem_path = os.path.join(PROC_DIR, 'topo', f'dem_elevacion_{RESOLUCION_M}m.tif')
     if not os.path.exists(dem_path):
         raise FileNotFoundError(f"DEM requerido: {dem_path}")
 
@@ -467,11 +467,11 @@ def muestrear_pixeles(mascara_valida, profile, monitoreo_por_semestre,
 
     # Cargar piso térmico para estratificación
     piso_path = os.path.join(ENG_DIR, 'piso_termico.tif')
-    pend_path = os.path.join(PROC_DIR, 'topo', 'dem_pendiente_10m.tif')
+    pend_path = os.path.join(PROC_DIR, 'topo', f'dem_pendiente_{RESOLUCION_M}m.tif')
 
     if not os.path.exists(piso_path):
         print("  Calculando piso térmico al vuelo desde DEM...")
-        elev, _ = _leer_raster(os.path.join(PROC_DIR, 'topo', 'dem_elevacion_10m.tif'))
+        elev, _ = _leer_raster(os.path.join(PROC_DIR, 'topo', f'dem_elevacion_{RESOLUCION_M}m.tif'))
         piso = np.full_like(elev, np.nan)
         piso[elev < 1000] = 0
         piso[(elev >= 1000) & (elev < 2000)] = 1
@@ -590,7 +590,7 @@ def _definir_capas_estaticas():
 
     # Topográficas
     for var in ['elevacion', 'pendiente', 'aspecto', 'curvatura', 'twi']:
-        path = os.path.join(topo_dir, f'dem_{var}_10m.tif')
+        path = os.path.join(topo_dir, f'dem_{var}_{RESOLUCION_M}m.tif')
         if os.path.exists(path):
             capas[var] = (path, 1)
 
