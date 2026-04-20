@@ -760,11 +760,49 @@ def armonizar_igac():
 # 5. SENTINEL-2 — REPROYECCIÓN CRS (resolución nativa)
 # ══════════════════════════════════════════════════════════════════
 
+def _limpiar_indices_extremos(path):
+    """
+    Limpia valores extremos de índices espectrales en GeoTIFFs reproyectados.
+    EVI y NDWI válido: [-1, 1]. Valores fuera de rango → NoData.
+
+    El overflow ocurre cuando el evalscript calcula índices sobre píxeles donde
+    el denominador ≈ 0, produciendo divisiones cercanas a cero.
+    """
+    import rasterio
+
+    nombre = os.path.basename(path).lower()
+
+    # Solo procesar archivos de EVI o NDWI (banda individual)
+    es_evi = '_evi_' in nombre
+    es_ndwi = '_ndwi_' in nombre
+    if not (es_evi or es_ndwi):
+        return 0, ''
+
+    tag = 'EVI' if es_evi else 'NDWI'
+
+    with rasterio.open(path, 'r+') as src:
+        data = src.read(1).astype(np.float32)
+        nodata = src.nodata if src.nodata else NODATA_RASTER
+        mascara_valido = data != nodata
+        mascara_overflow = mascara_valido & ((data < -1.0) | (data > 1.0))
+        n_overflow = int(np.count_nonzero(mascara_overflow))
+        if n_overflow > 0:
+            data[mascara_overflow] = nodata
+            src.write(data, 1)
+    return n_overflow, tag
+
+
 def armonizar_sentinel2():
     """
     Reproyecta GeoTIFF de Sentinel-2 de WGS84 a EPSG:3116.
     Conserva la resolución nativa — no fuerza al grid del proyecto.
+
+    Post-procesamiento:
+      - EVI: los valores fuera del rango [-1, 1] se reemplazan con NoData
+        (previene overflow del evalscript original).
     """
+    import rasterio
+
     print("\n" + "="*70)
     print("5. SENTINEL-2 -> REPROYECCION CRS A EPSG:3116 (resolucion nativa)")
     print("="*70)
@@ -782,15 +820,25 @@ def armonizar_sentinel2():
         dst_path = os.path.join(PROC_DIRS['sentinel2'], nombre)
 
         if os.path.exists(dst_path):
-            print(f"  Ya existe: {nombre}")
-            continue
+            print(f"  Ya existe: {nombre}", end='')
+        else:
+            print(f"  {nombre}...", end=' ', flush=True)
+            try:
+                reproyectar_raster_nativo(src_path, dst_path, resampling_method='bilinear')
+                print("OK", end='')
+            except Exception as e:
+                print(f"Error: {e}")
+                continue
 
-        print(f"  {nombre}...", end=' ', flush=True)
+        # Limpiar EVI/NDWI con valores extremos (overflow del evalscript)
         try:
-            reproyectar_raster_nativo(src_path, dst_path, resampling_method='bilinear')
-            print("OK")
+            n_overflow, tag = _limpiar_indices_extremos(dst_path)
+            if n_overflow > 0:
+                print(f" | {tag} limpiado: {n_overflow:,} valores fuera de [-1,1] → NoData")
+            else:
+                print()  # salto de línea
         except Exception as e:
-            print(f"Error: {e}")
+            print(f" | limpieza error: {e}")
 
     print("  Sentinel-2 armonizado.")
 

@@ -41,8 +41,12 @@ sh_config.sh_client_secret = CDSE_CLIENT_SECRET
 sh_config.sh_base_url      = CDSE_BASE_URL
 sh_config.sh_token_url     = CDSE_TOKEN_URL
 
-S1_CDSE = DataCollection.SENTINEL1_IW_ASC.define_from(
+S1_CDSE_ASC = DataCollection.SENTINEL1_IW_ASC.define_from(
     "SENTINEL1_IW_ASC_CDSE",
+    service_url=CDSE_BASE_URL,
+)
+S1_CDSE_DESC = DataCollection.SENTINEL1_IW_DES.define_from(
+    "SENTINEL1_IW_DES_CDSE",
     service_url=CDSE_BASE_URL,
 )
 
@@ -78,18 +82,33 @@ N_BANDS = len(BAND_NAMES_S1)
 NODATA = 0.0
 
 
+# Tamaño mínimo esperado para un tile válido (un tile vacío es ~5-15 KB)
+# Un tile con datos reales a 10 m para Cundinamarca es > 1 MB
+MIN_TILE_BYTES = 50_000  # 50 KB — umbral mínimo para considerar un tile válido
+
+
 def _tile_valido(path):
-    """Retorna True si el tile existe y tiene contenido (>0 bytes)."""
-    return os.path.exists(path) and os.path.getsize(path) > 0
+    """Retorna True si el tile existe, tiene contenido y no está vacío."""
+    if not os.path.exists(path):
+        return False
+    size = os.path.getsize(path)
+    if size < MIN_TILE_BYTES:
+        return False
+    # Verificar que contiene al menos algunos valores no-cero
+    try:
+        import rasterio
+        with rasterio.open(path) as src:
+            # Leer una muestra (esquina superior) para verificar que hay datos
+            sample = src.read(1, window=rasterio.windows.Window(0, 0, min(100, src.width), min(100, src.height)))
+            if np.all(sample == 0):
+                return False
+    except Exception:
+        return False
+    return True
 
 
-def descargar_tile(tile, mes, tile_dir):
-    """Descarga un tile individual para un mes. Retorna ruta si exitoso, None si falla."""
-    tile_file = os.path.join(tile_dir, f"tile_{tile['label']}.tif")
-
-    if _tile_valido(tile_file):
-        return tile_file
-
+def _request_s1(tile, mes, data_collection):
+    """Hace la petición a SentinelHub para una colección dada. Retorna array o None."""
     t_bbox = BBox(bbox=tile['bbox'], crs=CRS.WGS84)
     w_px, h_px = tile['size']
 
@@ -98,7 +117,7 @@ def descargar_tile(tile, mes, tile_dir):
             evalscript=EVALSCRIPT_S1,
             input_data=[
                 SentinelHubRequest.input_data(
-                    data_collection=S1_CDSE,
+                    data_collection=data_collection,
                     time_interval=(mes['start'], mes['end']),
                 )
             ],
@@ -114,29 +133,58 @@ def descargar_tile(tile, mes, tile_dir):
         if arr.ndim == 2:
             arr = arr[:, :, np.newaxis]
 
-        height, width = arr.shape[0], arr.shape[1]
-        n_bands = arr.shape[2]
-        transform = from_bounds(
-            tile['bbox'][0], tile['bbox'][1],
-            tile['bbox'][2], tile['bbox'][3],
-            width, height
-        )
+        # Verificar que tiene datos no-cero
+        if np.all(arr == 0):
+            return None
 
-        with rasterio.open(
-            tile_file, 'w', driver='GTiff',
-            height=height, width=width,
-            count=n_bands, dtype='float32',
-            crs='EPSG:4326', transform=transform,
-            compress='deflate', nodata=NODATA,
-        ) as dst:
-            for b in range(n_bands):
-                dst.write(arr[:, :, b], b + 1)
+        return arr
 
+    except Exception:
+        return None
+
+
+def descargar_tile(tile, mes, tile_dir):
+    """Descarga un tile individual para un mes. Retorna ruta si exitoso, None si falla.
+    
+    Intenta primero con órbita ascendente (ASC). Si retorna vacío,
+    prueba con órbita descendente (DESC). Esto es necesario porque
+    Sentinel-1B falló en diciembre 2021, reduciendo la cobertura ASC.
+    """
+    tile_file = os.path.join(tile_dir, f"tile_{tile['label']}.tif")
+
+    if _tile_valido(tile_file):
         return tile_file
 
-    except Exception as e:
-        print(f"\n    ERROR tile {tile['label']}: {e}")
+    # Intentar ASC primero, luego DESC como fallback
+    arr = None
+    for dc, label in [(S1_CDSE_ASC, "ASC"), (S1_CDSE_DESC, "DESC")]:
+        arr = _request_s1(tile, mes, dc)
+        if arr is not None:
+            break
+
+    if arr is None:
+        print(f"\n    tile {tile['label']}: sin datos ASC ni DESC")
         return None
+
+    height, width = arr.shape[0], arr.shape[1]
+    n_bands = arr.shape[2]
+    transform = from_bounds(
+        tile['bbox'][0], tile['bbox'][1],
+        tile['bbox'][2], tile['bbox'][3],
+        width, height
+    )
+
+    with rasterio.open(
+        tile_file, 'w', driver='GTiff',
+        height=height, width=width,
+        count=n_bands, dtype='float32',
+        crs='EPSG:4326', transform=transform,
+        compress='deflate', nodata=NODATA,
+    ) as dst:
+        for b in range(n_bands):
+            dst.write(arr[:, :, b], b + 1)
+
+    return tile_file
 
 
 def merge_tiles(tile_dir, out_file):
@@ -177,14 +225,30 @@ def merge_tiles(tile_dir, out_file):
             ds.close()
 
 
+def _output_valido(path):
+    """Retorna True si el archivo de salida existe y tiene datos reales."""
+    if not os.path.exists(path):
+        return False
+    size = os.path.getsize(path)
+    # Archivos válidos son > 50 MB. Archivos vacíos son ~442 KB.
+    if size < 1_000_000:  # < 1 MB → seguramente vacío
+        return False
+    return True
+
+
 def descargar_mes(mes, tiles, workers=5):
     """Descarga todos los tiles de un mes en paralelo y los fusiona."""
     out_dir = DIRS['sat_sentinel1']
     out_file = os.path.join(out_dir, f"s1_backscatter_{mes['label']}.tif")
 
-    if os.path.exists(out_file):
-        print(f"  [{mes['label']}] Ya existe. Saltando.")
+    # Validar que el archivo existente tenga datos reales
+    if _output_valido(out_file):
+        print(f"  [{mes['label']}] Ya existe y es válido. Saltando.")
         return
+    elif os.path.exists(out_file):
+        print(f"  [{mes['label']}] Archivo existe pero está vacío "
+              f"({os.path.getsize(out_file):,} bytes). Re-descargando...")
+        os.remove(out_file)
 
     tile_dir = os.path.join(out_dir, f"_tiles_{mes['label']}")
     os.makedirs(tile_dir, exist_ok=True)

@@ -1,26 +1,32 @@
 """
 run_all.py
-═══════════════════════════════════════════════════════════════
+════════════════════════════════════════════════════════════════
 Ejecuta todos los extractores en secuencia para descargar
-los datos crudos del proyecto ¿Qué Sembrar?
+los datos crudos del proyecto AgroPlus (¿Qué Sembrar?).
 
-Uso:
-    python run_all.py                        # Ejecutar todos
-    python run_all.py 3                      # Ejecutar solo el script 03 (IGAC)
-    python run_all.py 5 6                    # Ejecutar scripts 05 y 06 (Sentinel-2 y 1)
+Uso (con uv desde la raíz del proyecto):
+    uv run extractores/run_all.py                        # Ejecutar todos
+    uv run extractores/run_all.py 3                      # Ejecutar solo el script 03 (IGAC)
+    uv run extractores/run_all.py 5 6                    # Ejecutar scripts 05 y 06 (Sentinel-2 y 1)
 
     # Script 01: pasos individuales del clima IDEAM
-    python run_all.py 01:temp                # Solo temperatura
-    python run_all.py 01:precip              # Solo precipitación (todos los años)
-    python run_all.py 01:precip:2021         # Precipitación año 2021
-    python run_all.py 01:precip:2021:6       # Precipitación junio 2021
-    python run_all.py 01:humedad             # Solo humedad
-    python run_all.py 01:normales            # Solo normales climatológicas
+    uv run extractores/run_all.py 01:temp                # Solo temperatura
+    uv run extractores/run_all.py 01:precip              # Solo precipitación (todos los años)
+    uv run extractores/run_all.py 01:precip:2021         # Precipitación año 2021
+    uv run extractores/run_all.py 01:precip:2021:6       # Precipitación junio 2021
+    uv run extractores/run_all.py 01:humedad             # Solo humedad
+    uv run extractores/run_all.py 01:normales            # Solo normales climatológicas
 
-Cada script es idempotente: si un archivo ya existe, lo salta.
+    # Script 06: re-descargar Sentinel-1 (detecta y reemplaza archivos vacíos)
+    uv run extractores/run_all.py 6                      # Todos los meses
+    uv run extractores/06_extraer_sentinel1.py --mes 2022_01  # Un mes específico
+
+Cada script es idempotente: si un archivo ya existe y es válido, lo salta.
+Los archivos vacíos o corruptos se detectan y re-descargan automáticamente.
 Se puede reanudar después de una interrupción.
 
-pip install requests pandas geopandas rasterio sentinelhub numpy scipy pysheds
+Dependencias (instaladas automáticamente por uv):
+    requests, pandas, geopandas, rasterio, sentinelhub, numpy, scipy, pysheds
 """
 
 import subprocess

@@ -310,15 +310,13 @@ que-sembrar/
 ### Instalación
 
 ```bash
-git clone https://github.com/<org>/que-sembrar.git
-cd que-sembrar
+git clone https://github.com/rquiroga83/agromodel.git
+cd agromodel
 
-# Opción 1: Con Anaconda (recomendado en Windows)
-conda create -n agroplus python=3.12
-conda activate agroplus
-pip install -r requirements.txt
+# Instalar uv si no lo tienes
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-# Opción 2: Con uv
+# Sincronizar dependencias (las instala automáticamente)
 uv sync
 ```
 

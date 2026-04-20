@@ -2,6 +2,36 @@
 
 Scripts de transformación de datos crudos a capas armonizadas listas para modelado.
 
+### Requisitos previos
+
+```bash
+# Las dependencias se instalan automáticamente con uv run
+# (definidas en pyproject.toml en la raíz del proyecto)
+# Todos los comandos se ejecutan desde la raíz del proyecto:
+cd d:\trabajo\agroplus
+```
+
+### Orden completo del pipeline
+
+```bash
+# 0. Extracción de datos crudos (ver extractores/README.md)
+uv run extractores/run_all.py
+
+# 1. Armonización espacial (reproyección a EPSG:3116, 10 m)
+uv run procesamiento/01_armonizar_espacial.py
+
+# 2. Agregación temporal (mensual → estadísticos semestrales)
+uv run procesamiento/02_armonizar_temporal.py
+
+# 3. Feature engineering (features derivadas)
+uv run procesamiento/03_feature_engineering.py
+
+# 4. Vista minable (tabla Parquet para ML)
+uv run procesamiento/04_construir_vista_minable.py
+```
+
+---
+
 ## 01_armonizar_espacial.py
 
 Convierte todas las fuentes de datos crudas (`extractores/raw/`) a un único grid de referencia:
@@ -11,12 +41,6 @@ Convierte todas las fuentes de datos crudas (`extractores/raw/`) a un único gri
 | CRS | EPSG:3116 — MAGNA-SIRGAS Colombia Bogotá |
 | Resolución | 10 m × 10 m |
 | Salida | `processed/` |
-
-### Dependencias
-
-```bash
-pip install rasterio geopandas pykrige scipy numpy pyproj pandas
-```
 
 ---
 
@@ -191,12 +215,6 @@ Los modelos necesitan features a nivel semestral (cada observación = un píxel 
 
 - IDEAM/CHIRPS: mínimo 3 de 6 meses disponibles por semestre
 - Sentinel-1/2: mínimo 2 de 6 meses disponibles por semestre
-
-### Dependencias
-
-```bash
-pip install rasterio numpy
-```
 
 ### Ejecución
 

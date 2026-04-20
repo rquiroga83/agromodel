@@ -20,19 +20,25 @@ Operaciones:
   3. Rasterizar polígonos SIPRA → máscara de aptitud por cultivo
   4. Cargar EVA municipal → rendimiento y cultivos por municipio-semestre
   5. Muestreo estratificado: ~500K–1M píxeles
-  6. Extraer 74+ features por píxel del stack de rasters
+  6. Extraer ~45 features por píxel del stack de rasters (Sentinel-1 excluido)
   7. Asignar etiquetas target con prioridad: monitoreo > EVA > SIPRA
   8. Guardar como Parquet
 
-Uso:
-    python 04_construir_vista_minable.py                      # Todo
-    python 04_construir_vista_minable.py --step preparar      # Solo paso 1-3 (máscaras)
-    python 04_construir_vista_minable.py --step muestrear     # Solo paso 4-5 (muestreo)
-    python 04_construir_vista_minable.py --step extraer       # Solo paso 6-7 (extracción)
-    python 04_construir_vista_minable.py --step exportar      # Solo paso 8 (parquet)
-    python 04_construir_vista_minable.py --max-pixeles 200000 # Limitar muestreo
+Prerequisitos:
+    1. Haber ejecutado extractores (01-08) para generar raw/
+    2. Haber ejecutado procesamiento/01_armonizar_espacial.py
+    3. Haber ejecutado procesamiento/02_armonizar_temporal.py
+    4. Haber ejecutado procesamiento/03_feature_engineering.py  (recomendado)
 
-pip install rasterio geopandas pandas numpy pyarrow pyproj
+Uso:
+    cd d:\\trabajo\\agroplus
+    uv run procesamiento/04_construir_vista_minable.py                          # Pipeline completo
+    uv run procesamiento/04_construir_vista_minable.py --step preparar         # Solo paso 1-3 (máscaras + rasterización)
+    uv run procesamiento/04_construir_vista_minable.py --step muestrear        # Solo paso 4-5 (EVA + muestreo píxeles)
+    uv run procesamiento/04_construir_vista_minable.py --max-pixeles 200000    # Limitar muestreo (default: 500,000)
+
+Dependencias (ya en pyproject.toml):
+    uv sync
 """
 
 import argparse
@@ -272,10 +278,31 @@ def rasterizar_sipra(profile):
     width = profile['width']
 
     # Mapeo de aptitud a confianza
+    # Los valores SIPRA son como: 'Aptitud alta', 'Aptitud baja', 'No apta', 'Exclusión legal'
     APTITUD_CONFIANZA = {
         'alta': 0.5, 'media': 0.4, 'baja': 0.2, 'marginal': 0.15,
-        'no apta': 0.0, 'exclusion legal': 0.0,
+        'no apta': 0.0, 'exclusion': 0.0,
     }
+
+    def _normalizar_aptitud(valor):
+        """Normaliza 'Aptitud alta' → 'alta', 'No apta' → 'no apta', etc."""
+        v = str(valor).strip().lower()
+        if 'alta' in v and 'marginal' not in v:
+            return 'alta'
+        elif 'media' in v:
+            return 'media'
+        elif 'baja' in v:
+            return 'baja'
+        elif 'marginal' in v:
+            return 'marginal'
+        elif 'no apta' in v or 'no_apta' in v:
+            return 'no apta'
+        elif 'exclusi' in v:
+            return 'exclusion'
+        return v
+
+    # Permitir lectura de GeoJSON grandes (Palma >500MB)
+    os.environ['OGR_GEOJSON_MAX_OBJ_SIZE'] = '0'  # 0 = sin límite
 
     sipra_por_cultivo = {}
 
@@ -333,10 +360,10 @@ def rasterizar_sipra(profile):
         # Rasterizar por clase de aptitud
         cultivo_mascaras = {}
         for apt_clase in gdf[apt_col].dropna().unique():
-            apt_lower = str(apt_clase).strip().lower()
-            confianza = APTITUD_CONFIANZA.get(apt_lower, 0.0)
+            apt_key = _normalizar_aptitud(apt_clase)
+            confianza = APTITUD_CONFIANZA.get(apt_key, 0.0)
             if confianza == 0.0:
-                continue  # Ignorar "No apta" y "Exclusion legal"
+                continue  # Ignorar "No apta" y "Exclusión legal"
 
             subset = gdf[gdf[apt_col] == apt_clase]
             geoms = [(g, 1) for g in subset.geometry if g is not None and g.is_valid]
@@ -350,7 +377,7 @@ def rasterizar_sipra(profile):
             mascara = raster > 0
             n = np.count_nonzero(mascara)
             if n > 0:
-                cultivo_mascaras[apt_lower] = (mascara, confianza)
+                cultivo_mascaras[apt_key] = (mascara, confianza)
                 print(f"    {apt_clase}: {n:,} píxeles (confianza={confianza})")
 
         if cultivo_mascaras:
@@ -506,8 +533,10 @@ def muestrear_pixeles(mascara_valida, profile, monitoreo_por_semestre,
     pend_v = pend_clase[rows_v, cols_v]
     mon_v = mascara_monitoreo[rows_v, cols_v].astype(np.float32)
 
-    # Combinar en ID de estrato
-    estrato = (piso_v * 100 + pend_v * 10 + mon_v).astype(np.int16)
+    # Combinar en ID de estrato (NaN → -1 para poder castear a int)
+    _piso_safe = np.nan_to_num(piso_v, nan=-1)
+    _pend_safe = np.nan_to_num(pend_v, nan=-1)
+    estrato = (_piso_safe * 100 + _pend_safe * 10 + mon_v).astype(np.int16)
 
     # Contar por estrato
     estratos_unicos, counts = np.unique(estrato[~np.isnan(piso_v)], return_counts=True)
@@ -559,13 +588,16 @@ def muestrear_pixeles(mascara_valida, profile, monitoreo_por_semestre,
     xs = transform.c + cols_sel * transform.a + transform.a / 2
     ys = transform.f + rows_sel * transform.e + transform.e / 2
 
+    _piso_sel = np.nan_to_num(piso[rows_sel, cols_sel], nan=-1).astype(np.int8)
+    _pend_sel = np.nan_to_num(pend_clase[rows_sel, cols_sel], nan=-1).astype(np.int8)
+
     df_pixeles = pd.DataFrame({
         'row': rows_sel,
         'col': cols_sel,
         'x': xs,
         'y': ys,
-        'piso_termico': piso[rows_sel, cols_sel].astype(np.int8),
-        'pendiente_clase': pend_clase[rows_sel, cols_sel].astype(np.int8),
+        'piso_termico': _piso_sel,
+        'pendiente_clase': _pend_sel,
         'tiene_monitoreo': mascara_monitoreo[rows_sel, cols_sel].astype(np.int8),
     })
 
@@ -580,6 +612,38 @@ def muestrear_pixeles(mascara_valida, profile, monitoreo_por_semestre,
 # PASO 6: EXTRAER FEATURES DE RASTERS
 # ==================================================================
 
+# Capas a excluir explícitamente de la vista minable
+EXCLUIR_CAPAS = {
+    'dem_cundinamarca',   # Alias de dem_elevacion, ya incluido como 'elevacion'
+    # IGAC excluidos: cardinalidad extrema o redundantes con SoilGrids/topografía
+    'igac_subgrupo',      # 1109 clases taxonomía USDA — redundante con propiedades suelo
+    'igac_ucsuelo',       # ~500+ unidades cartográficas — similar a subgrupo
+    'igac_clima',         # ~34 clases climáticas — ya capturado por IDEAM/CHIRPS
+    'igac_paisaje',       # ~20 tipos — ya capturado por topografía
+    'igac_material',      # ~15 tipos material parental — no afecta directamente al cultivo
+    'igac_relieve',       # ~10 tipos — ya capturado por topografía
+    'igac_calificacion',  # ~10 clases — redundante con fertilidad
+    'igac_suma_bases',    # ~10 clases — correlacionado con CEC y fertilidad
+}
+
+# Índices Sentinel-2 excluidos del análisis estadístico
+# (correlación alta con NDVI, ruido, o poca aportación diferencial)
+S2_INDICES_EXCLUIR = {
+    'evi',   # Alta correlación con NDVI (r>0.95); NDVI es más estable
+    'ndwi',  # Mide contenido de agua en vegetación — redundante con humedad IDEAM e índice aridez
+}
+
+# Variables topográficas excluidas
+TOPO_EXCLUIR = {
+    'curvatura',  # Distribución casi uniforme ≈ 0; sin poder discriminante
+}
+
+# Variables SoilGrids excluidas
+SOILGRIDS_PROPS_EXCLUIR = {
+    'ocd',  # Densidad de carbono orgánico — altamente correlacionado con SOC (r>0.9)
+}
+
+
 def _definir_capas_estaticas():
     """Define las capas estáticas (no cambian por semestre)."""
     topo_dir = os.path.join(PROC_DIR, 'topo')
@@ -588,14 +652,17 @@ def _definir_capas_estaticas():
 
     capas = {}
 
-    # Topográficas
-    for var in ['elevacion', 'pendiente', 'aspecto', 'curvatura', 'twi']:
+    # Topográficas (excluyendo alias como dem_cundinamarca, aspecto original y curvatura)
+    # NOTA: 'aspecto' se excluye — usar aspecto_sin y aspecto_cos (engineered)
+    # NOTA: 'curvatura' excluida — distribución casi uniforme ≈ 0, sin poder discriminante
+    for var in ['elevacion', 'pendiente', 'twi']:
         path = os.path.join(topo_dir, f'dem_{var}_{RESOLUCION_M}m.tif')
-        if os.path.exists(path):
+        if os.path.exists(path) and var not in EXCLUIR_CAPAS:
             capas[var] = (path, 1)
 
     # SoilGrids 0-5 cm (profundidad principal para agricultura)
-    for prop in ['phh2o', 'soc', 'nitrogen', 'cec', 'bdod', 'ocd']:
+    # NOTA: ocd excluido — altamente correlacionado con SOC (r>0.9)
+    for prop in ['phh2o', 'soc', 'nitrogen', 'cec', 'bdod']:
         path = os.path.join(sg_dir, f'soilgrids_{prop}_0_5cm.tif')
         if os.path.exists(path):
             capas[f'sg_{prop}'] = (path, 1)
@@ -606,13 +673,19 @@ def _definir_capas_estaticas():
         if os.path.exists(path):
             capas[f'sg_{tex}'] = (path, 1)
 
-    # IGAC (categóricos como int)
+    # IGAC — solo los que NO están en EXCLUIR_CAPAS
+    igac_excluidos = []
     for f in glob.glob(os.path.join(igac_dir, 'igac_*.tif')):
         nombre = os.path.basename(f).replace('.tif', '')
-        capas[nombre] = (f, 1)
+        if nombre in EXCLUIR_CAPAS:
+            igac_excluidos.append(nombre)
+        else:
+            capas[nombre] = (f, 1)
+    if igac_excluidos:
+        print(f"  IGAC excluidos ({len(igac_excluidos)}): {', '.join(igac_excluidos)}")
 
-    # Features derivadas estáticas
-    for nombre in ['piso_termico', 'indice_fertilidad']:
+    # Features derivadas estáticas (incluye aspecto descompuesto sin/cos)
+    for nombre in ['piso_termico', 'indice_fertilidad', 'aspecto_sin', 'aspecto_cos']:
         path = os.path.join(ENG_DIR, f'{nombre}.tif')
         if os.path.exists(path):
             capas[nombre] = (path, 1)
@@ -625,9 +698,11 @@ def _definir_capas_semestrales(sem_label):
     capas = {}
 
     # Agregados temporales IDEAM
+    # NOTA: precipitacion_acum de IDEAM se excluye (100% ceros - kriging fallido).
+    #       Se usa CHIRPS como fuente de precipitación (chirps_acum).
     ideam_dir = os.path.join(TEMP_DIR, 'clima', 'ideam')
     for var in ['temperatura_media', 'temperatura_max', 'temperatura_min',
-                'precipitacion_acum', 'humedad_media']:
+                'humedad_media']:
         path = os.path.join(ideam_dir, f'{var}_{sem_label}.tif')
         if os.path.exists(path):
             capas[var] = (path, 1)
@@ -638,19 +713,26 @@ def _definir_capas_semestrales(sem_label):
         capas['chirps_acum'] = (chirps_path, 1)
 
     # Sentinel-2 estadísticos semestrales
+    # NOTA: EVI excluido — alta correlación con NDVI (r>0.95)
+    # NOTA: NDWI excluido — redundante con humedad IDEAM e índice de aridez
     s2_dir = os.path.join(TEMP_DIR, 'satelite', 'sentinel2')
-    for indice in ['ndvi', 'gndvi', 'evi', 'ndwi', 'msavi', 'bsi', 'savi']:
+    for indice in ['ndvi', 'gndvi', 'msavi', 'bsi', 'savi']:
         for agg in ['media', 'max', 'std']:
             path = os.path.join(s2_dir, f's2_{indice}_{agg}_{sem_label}.tif')
             if os.path.exists(path):
                 capas[f's2_{indice}_{agg}'] = (path, 1)
 
-    # Sentinel-1 estadísticos semestrales
-    s1_dir = os.path.join(TEMP_DIR, 'satelite', 'sentinel1')
-    for banda in ['vv', 'vh', 'vh_vv_ratio']:
-        path = os.path.join(s1_dir, f's1_{banda}_media_{sem_label}.tif')
-        if os.path.exists(path):
-            capas[f's1_{banda}_media'] = (path, 1)
+    # NOTA: Sentinel-1 EXCLUIDO de la vista minable.
+    # Razón: 53% de datos faltantes (2022-2025) por fallo Sentinel-1B (dic 2021).
+    # Solo aporta 3 features (VV, VH, VH/VV ratio) que son redundantes con:
+    #   - Vegetación: Sentinel-2 (NDVI, GNDVI, SAVI, MSAVI, BSI — 5 índices)
+    #   - Humedad: IDEAM + CHIRPS + índice de aridez
+    # Para reincorporar, descomentar y re-ejecutar:
+    # s1_dir = os.path.join(TEMP_DIR, 'satelite', 'sentinel1')
+    # for banda in ['vv', 'vh', 'vh_vv_ratio']:
+    #     path = os.path.join(s1_dir, f's1_{banda}_media_{sem_label}.tif')
+    #     if os.path.exists(path):
+    #         capas[f's1_{banda}_media'] = (path, 1)
 
     # Features derivadas por semestre
     for feat in ['amplitud_termica', 'anomalia_precip', 'ndvi_max',
@@ -761,8 +843,9 @@ def asignar_target(df_pixeles, sem_label, monitoreo_por_semestre,
         # Por ahora usamos un enfoque simplificado: asignar el cultivo dominante
         # del municipio basado en la coordenada.
 
-        # Verificar si hay un raster de municipios (de IGAC o similar)
-        igac_ucsuelo = os.path.join(PROC_DIR, 'suelo', 'igac', 'igac_ucsuelo.tif')
+        # NOTA: Se usa asignación por piso térmico en vez de municipios
+        # (no hay raster de municipios disponible con granularidad suficiente).
+        # En el futuro se podría integrar un shapefile de límites municipales.
 
         # Mapear píxeles a municipios usando un transformer
         # Las coordenadas ya están en EPSG:3116 pero EVA usa códigos DANE
@@ -901,9 +984,9 @@ def construir_vista_minable(max_pixeles=MAX_PIXELES_DEFAULT):
         df_target = asignar_target(df_pixeles, sem_label, monitoreo, sipra,
                                    eva_df, profile)
 
-        # Combinar
+        # Combinar (piso_termico ya viene en df_feat como feature estática)
         df_sem = pd.concat([
-            df_pixeles[['x', 'y', 'piso_termico']].reset_index(drop=True),
+            df_pixeles[['x', 'y']].reset_index(drop=True),
             df_feat.reset_index(drop=True),
             df_target.reset_index(drop=True),
         ], axis=1)
@@ -938,6 +1021,9 @@ def construir_vista_minable(max_pixeles=MAX_PIXELES_DEFAULT):
     cultivos_unicos = sorted(vista['cultivo'].unique())
     cultivo_a_id = {c: i for i, c in enumerate(cultivos_unicos)}
     vista['cultivo_id'] = vista['cultivo'].map(cultivo_a_id).astype(np.int16)
+
+    # Eliminar columnas duplicadas (seguridad)
+    vista = vista.loc[:, ~vista.columns.duplicated()]
 
     # Reordenar columnas: metadata → features → target
     meta_cols = ['pixel_id', 'x', 'y', 'semestre']

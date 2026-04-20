@@ -8,24 +8,24 @@ Salida  : processed/temporal/ (estadísticos semestrales alineados con EVA)
 
 Operaciones:
   1. IDEAM temperatura → media, máxima, mínima por semestre
-  2. IDEAM precipitación → acumulado semestral
-  3. IDEAM humedad → media semestral
-  4. CHIRPS → acumulado semestral
-  5. Sentinel-2 → media, máxima, desviación por índice por semestre
-  6. Sentinel-1 → media semestral por banda
+  2. IDEAM humedad → media semestral
+  3. CHIRPS → acumulado semestral (fuente principal de precipitación)
+  4. Sentinel-2 → media, máxima, desviación por índice por semestre
+  5. Sentinel-1 → media semestral por banda (excluido de vista minable)
+
+NOTA: IDEAM precipitación se excluye porque el kriging produjo 100% ceros.
+      Se usa CHIRPS como fuente de precipitación confiable.
 
 Los rásteres mensuales individuales se conservan en processed/ (necesarios
 para features temporales del LSTM). Este script genera los agregados
 semestrales que alimentan la vista minable y el feature engineering.
 
-Uso:
-    python 02_armonizar_temporal.py                   # Agrega todo
-    python 02_armonizar_temporal.py --step ideam       # Solo clima IDEAM
-    python 02_armonizar_temporal.py --step chirps      # Solo CHIRPS
-    python 02_armonizar_temporal.py --step sentinel2   # Solo Sentinel-2
-    python 02_armonizar_temporal.py --step sentinel1   # Solo Sentinel-1
-
-pip install rasterio numpy
+Uso (desde la raíz del proyecto):
+    uv run procesamiento/02_armonizar_temporal.py                       # Agrega todo
+    uv run procesamiento/02_armonizar_temporal.py --step ideam          # Solo clima IDEAM
+    uv run procesamiento/02_armonizar_temporal.py --step chirps         # Solo CHIRPS
+    uv run procesamiento/02_armonizar_temporal.py --step sentinel2      # Solo Sentinel-2
+    uv run procesamiento/02_armonizar_temporal.py --step sentinel1      # Solo Sentinel-1
 """
 
 import argparse
@@ -123,12 +123,14 @@ def agregar_ideam():
     """
     Agrega rásteres mensuales de IDEAM por semestre:
       - temperatura: media, máxima media, mínima media
-      - precipitación: acumulado (suma)
       - humedad: media
+    
+    NOTA: precipitación IDEAM excluida — kriging produjo 100% ceros.
+          Se usa CHIRPS como fuente de precipitación (agregar_chirps).
     """
     import warnings
     print("\n" + "="*70)
-    print("1. IDEAM → AGREGACIÓN SEMESTRAL")
+    print("1. IDEAM → AGREGACIÓN SEMESTRAL (sin precipitación — usar CHIRPS)")
     print("="*70)
 
     ideam_dir = os.path.join(PROC_DIR, 'clima', 'ideam')
@@ -141,12 +143,6 @@ def agregar_ideam():
                 'media': lambda s: np.nanmean(s, axis=0),
                 'max':   lambda s: np.nanmax(s, axis=0),
                 'min':   lambda s: np.nanmin(s, axis=0),
-            },
-        },
-        'precipitacion': {
-            'patron': os.path.join(ideam_dir, 'precipitacion_{mes}_kriging.tif'),
-            'agregaciones': {
-                'acum': lambda s: np.nansum(s, axis=0),
             },
         },
         'humedad': {
@@ -285,6 +281,10 @@ def agregar_sentinel2():
                         arr = src.read(b_idx + 1).astype(np.float32)
                         # Tratar 0 como NoData (evalscript devuelve 0 donde no hay datos)
                         arr[arr == 0] = np.nan
+                        # Protección EVI/NDWI: descartar valores fuera de rango [-1, 1]
+                        # Overflow del evalscript por división cercana a cero
+                        if band_name.upper() in ('EVI', 'NDWI'):
+                            arr[(arr < -1.0) | (arr > 1.0)] = np.nan
                         band_stack.append(arr)
 
             if len(band_stack) < 2:

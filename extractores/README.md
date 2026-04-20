@@ -1,10 +1,21 @@
-# Extractores de Datos — Proyecto ¿Qué Sembrar?
-## Cundinamarca, Colombia | Ventana Temporal: 2019–2024
+# Extractores de Datos — Proyecto AgroPlus (¿Qué Sembrar?)
+## Cundinamarca, Colombia | Ventana Temporal: 2020–2025
+
+### Requisitos previos
+
+```bash
+# Instalar uv (gestor de paquetes)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Las dependencias se instalan automáticamente con uv run
+# (definidas en pyproject.toml)
+```
 
 ### Estructura de Scripts
 
 ```
 extractores/
+├── .env.example                   # Plantilla de credenciales (copiar a .env)
 ├── config.py                      # Configuración compartida (bbox, credenciales, rutas)
 ├── run_all.py                     # Ejecutor maestro (todos los scripts en secuencia)
 ├── 01_extraer_clima_ideam.py      # Clima: Temperatura, Precipitación, Humedad, Normales
@@ -17,58 +28,59 @@ extractores/
 └── 08_extraer_target.py           # Target: EVA + Monitoreo UPRA + SIPRA Aptitud
 ```
 
-### Instalación de Dependencias
+### Configuración de credenciales
 
 ```bash
-pip install requests pandas geopandas rasterio sentinelhub numpy scipy pysheds
-# Opcional para CHIRPS via GEE:
-pip install earthengine-api
+# Copiar plantilla y editar con tus credenciales
+cp extractores/.env.example extractores/.env
+# Editar .env con: CDSE_CLIENT_ID, CDSE_CLIENT_SECRET, etc.
 ```
 
-### Uso
+### Uso (todos los comandos se ejecutan desde la raíz del proyecto)
 
 ```bash
-# Ejecutar TODOS los extractores (puede tardar varias horas)
-uv run run_all.py
+# ── Ejecutar TODOS los extractores (puede tardar varias horas) ──
+uv run extractores/run_all.py
 
-# Ejecutar un extractor específico por número
-uv run run_all.py 01        # Solo clima IDEAM (los 4 pasos)
-uv run run_all.py 05 06     # Solo Sentinel-2 y Sentinel-1 (tiles + merge)
+# ── Ejecutar un extractor específico por número ──
+uv run extractores/run_all.py 01        # Solo clima IDEAM (los 4 pasos)
+uv run extractores/run_all.py 05 06     # Solo Sentinel-2 y Sentinel-1 (tiles + merge)
+uv run extractores/run_all.py 08        # Solo targets (EVA, Monitoreo, SIPRA)
 
-# Script 05 — Sentinel-2: descargar un mes específico (tiles + merge)
+# ── Script 01 — Clima IDEAM: ejecutar cada variable de forma independiente ──
+uv run extractores/run_all.py 01:temp       # Solo Temperatura
+uv run extractores/run_all.py 01:precip     # Solo Precipitación (todos los años, por mes)
+uv run extractores/run_all.py 01:humedad    # Solo Humedad del Aire
+uv run extractores/run_all.py 01:normales   # Solo Normales Climatológicas 1961-2020
+
+# Script 01 — Precipitación: reanudar desde un año o mes específico
+uv run extractores/run_all.py 01:precip:2021        # Solo precipitación 2021
+uv run extractores/run_all.py 01:precip:2021:6      # Solo precipitación junio 2021
+
+# ── Script 03 — Suelo IGAC ──
+uv run extractores/run_all.py 03:quimica    # Solo Propiedades Químicas
+uv run extractores/run_all.py 03:vocacion   # Solo Vocación de Uso
+
+# ── Script 05 — Sentinel-2: descargar un mes específico ──
 uv run extractores/05_extraer_sentinel2.py --mes 2020_01
 uv run extractores/05_extraer_sentinel2.py               # Todos los meses
 
-# Script 06 — Sentinel-1: descargar un mes específico (tiles + merge)
+# ── Script 06 — Sentinel-1: descargar un mes específico ──
 uv run extractores/06_extraer_sentinel1.py --mes 2020_01
 uv run extractores/06_extraer_sentinel1.py               # Todos los meses
-uv run run_all.py 08        # Solo targets (EVA, Monitoreo, SIPRA)
+uv run extractores/06_extraer_sentinel1.py --workers 8   # Más paralelismo
 
-# Script 01 — Clima IDEAM: ejecutar cada variable de forma independiente
-uv run run_all.py 01:temp       # Solo Temperatura
-uv run run_all.py 01:precip     # Solo Precipitación (todos los años, por mes)
-uv run run_all.py 01:humedad    # Solo Humedad del Aire
-uv run run_all.py 01:normales   # Solo Normales Climatológicas 1961-2020
+# ── Script 08 — Target: ejecutar cada dataset de forma independiente ──
+uv run extractores/run_all.py 08:eva        # Solo EVA (Evaluaciones Agropecuarias)
+uv run extractores/run_all.py 08:monitoreo  # Solo Monitoreo Satelital UPRA
+uv run extractores/run_all.py 08:sipra      # Solo Zonificación de Aptitud SIPRA
 
-# Script 01 — Precipitación: reanudar desde un año o mes específico
-uv run run_all.py 01:precip:2021        # Solo precipitación 2021
-uv run run_all.py 01:precip:2021:6      # Solo precipitación junio 2021
-
-# Script 03 — Suelo IGAC: ejecutar cada capa de forma independiente
-uv run run_all.py 03:quimica    # Solo Propiedades Químicas
-uv run run_all.py 03:vocacion   # Solo Vocación de Uso
-
-# Script 08 — Target: ejecutar cada dataset de forma independiente
-uv run run_all.py 08:eva        # Solo EVA (Evaluaciones Agropecuarias)
-uv run run_all.py 08:monitoreo  # Solo Monitoreo Satelital UPRA
-uv run run_all.py 08:sipra      # Solo Zonificación de Aptitud SIPRA
-
-# O ejecutar directamente con argumentos
-uv run 01_extraer_clima_ideam.py --step precip
-uv run 01_extraer_clima_ideam.py --step precip --year 2021
-uv run 01_extraer_clima_ideam.py --step precip --year 2021 --mes 6
-uv run 03_extraer_suelo_igac.py --step quimica
-uv run 03_extraer_suelo_igac.py --step vocacion
+# ── Ejecutar directamente un script con argumentos ──
+uv run extractores/01_extraer_clima_ideam.py --step precip
+uv run extractores/01_extraer_clima_ideam.py --step precip --year 2021
+uv run extractores/01_extraer_clima_ideam.py --step precip --year 2021 --mes 6
+uv run extractores/03_extraer_suelo_igac.py --step quimica
+uv run extractores/03_extraer_suelo_igac.py --step vocacion
 ```
 
 ### Parámetros Clave (config.py)
@@ -129,4 +141,10 @@ raw/
   esperar y reintentar.
 - **CHIRPS:** Se intenta GEE primero. Si no está configurado, usa descarga directa.
 - **Datos estáticos vs temporales:** SoilGrids, IGAC y DEM se descargan una sola vez.
-  IDEAM, CHIRPS, Sentinel-2 y Sentinel-1 tienen datos por cada semestre 2019-2024.
+  IDEAM, CHIRPS, Sentinel-2 y Sentinel-1 tienen datos por cada semestre 2020-2025.
+- **Sentinel-1 — Validación de calidad:** El extractor detecta automáticamente archivos
+  vacíos (tiles sin datos de la API CDSE) y los re-descarga. Si encuentras archivos
+  de ~442 KB en `raw/satelite/sentinel1/`, son inválidos — re-ejecuta el extractor:
+  ```bash
+  uv run extractores/06_extraer_sentinel1.py   # Re-descarga solo los meses vacíos
+  ```
