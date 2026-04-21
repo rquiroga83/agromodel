@@ -1,16 +1,15 @@
 # Informe de Análisis Estadístico - Datos Procesados para Vista Minable
-## Proyecto: ¿Qué Sembrar? - AgroPlus
-### Fecha: 16/04/2026
+
 
 ---
 
-## RESUMEN EJECUTIVO
+## RESUMEN 
 
 Se analizaron **~74 variables** en los datos procesados (`processed/`) incluyendo topografía, suelo (SoilGrids + IGAC), clima (IDEAM + CHIRPS) y satélite (Sentinel-1/2). Se identificaron **12 alertas críticas**, **8 alertas altas** y **6 alertas medias** que requieren atención antes de construir la vista minable.
 
 ---
 
-## 1. ALERTAS CRÍTICAS 🚨
+## 1. ALERTAS CRÍTICAS 
 
 ### 1.1 IDEAM Precipitación: 100% CEROS (VARIABLE ROTA)
 | Mes | mean | std | % ceros |
@@ -72,9 +71,9 @@ dem_elevacion:    mean=1665.605, std=1118.764, range=[149.132, 4216.166]
 
 | Período | VV_dB | VH_dB | VH_VV_ratio |
 |---------|-------|-------|-------------|
-| 2020_01-2021_07 | ✅ Normal (mean VV≈-9dB) | ✅ Normal | ✅ Normal |
+| 2020_01-2021_07 |  Normal (mean VV≈-9dB) |  Normal |  Normal |
 | 2022_01 - 2025_01 | **0% datos válidos** | **0% datos válidos** | **0% datos válidos** |
-| 2025_07 | ✅ Normal | ✅ Normal | ✅ Normal |
+| 2025_07 |  Normal |  Normal |  Normal |
 
 **Diagnóstico**: Sentinel-1 no tiene datos válidos para 24 de 36 meses muestreados (2022-01 a 2025-01). Solo hay datos para 2020, 2021 y 2025_07. Esto puede ser un problema en el extractor o en la armonización espacial.
 
@@ -101,7 +100,7 @@ Los SoilGrids reportan valores multiplicados por 10:
 
 ---
 
-## 2. ALERTAS ALTAS ⚠️
+## 2. ALERTAS ALTAS 
 
 ### 2.1 IDEAM Humedad: Meses con Varianza Casi Cero
 | Mes | mean | std | Diagnóstico |
@@ -170,7 +169,7 @@ dem_aspecto: min=-1.000 (debería ser 0-360)
 
 ---
 
-## 3. ALERTAS MEDIAS 📋
+## 3. ALERTAS MEDIAS 
 
 ### 3.1 SoilGrids: ~1.1% Ceros en Todas las Variables (NoData sin marcar)
 
@@ -292,14 +291,6 @@ cultivo_id, cultivo_nombre, confianza_label, fuente_label
 - **Sentinel-2 NoData por nubes**: Excluir del cálculo semestral (no rellenar con 0)
 - **IDEAM humedad constante**: Interpolar temporalmente desde meses adyacentes
 
-### 7.3 Orden de Ejecución:
-1. ✅ `01_armonizar_espacial.py` (ya ejecutado)
-2. ❌ `02_armonizar_temporal.py` (FALTA - temporal/ está vacío)
-3. 🔧 Corregir evalscript de Sentinel-2 (EVI overflow, NDWI formula)
-4. 🔧 Revisar kriging de precipitación IDEAM
-5. ⏳ `03_feature_engineering.py`
-6. ⏳ `04_construir_vista_minable.py`
-
 ---
 
 ## 8. ESTADÍSTICAS DETALLADAS POR VARIABLE
@@ -343,22 +334,19 @@ cultivo_id, cultivo_nombre, confianza_label, fuente_label
 | temp | 2020_01 | 8.5°C | 11.3 | Normal |
 | temp | 2020_07 | 6.6°C | 9.3 | Normal |
 | precip IDEAM | Todos | **0.000** | 0.000 | **ROTO** |
-| precip CHIRPS | 2020_01 | 41.2mm | 13.3 | ✅ Normal |
-| precip CHIRPS | 2020_07 | 231.4mm | 165.7 | ✅ Normal |
+| precip CHIRPS | 2020_01 | 41.2mm | 13.3 |  Normal |
+| precip CHIRPS | 2020_07 | 231.4mm | 165.7 |  Normal |
 | humedad | 2020_01 | 71.0% | 0.14 | Normal |
-| humedad | 2020_07 | 67.1% | **0.001** | ⚠️ Constante |
+| humedad | 2020_07 | 67.1% | **0.001** |  Constante |
 
 ### Sentinel-2 (Muestra):
 | Variable | 2020_01 Mean | 2020_07 Mean | Rango Válido | Observación |
 |----------|-------------|-------------|--------------|-------------|
-| NDVI | 0.673 | 0.636 | [-1, 1] | ✅ Normal |
-| GNDVI | 0.623 | 0.561 | [-1, 1] | ✅ Normal |
-| EVI | 0.454 | 0.515 | [-1065, 7135] | ❌ **OVERFLOW** |
-| NDWI | -0.623 | -0.561 | [-1, 1] | ⚠️ = -GNDVI |
-| MSAVI | 0.401 | 0.421 | [-0.31, 0.97] | ✅ Normal |
-| BSI | -0.137 | -0.167 | [-0.81, 0.98] | ✅ Normal |
-| SAVI | 0.410 | 0.423 | [-0.35, 0.97] | ✅ Normal |
+| NDVI | 0.673 | 0.636 | [-1, 1] |  Normal |
+| GNDVI | 0.623 | 0.561 | [-1, 1] |  Normal |
+| EVI | 0.454 | 0.515 | [-1065, 7135] |  **OVERFLOW** |
+| NDWI | -0.623 | -0.561 | [-1, 1] |  = -GNDVI |
+| MSAVI | 0.401 | 0.421 | [-0.31, 0.97] |  Normal |
+| BSI | -0.137 | -0.167 | [-0.81, 0.98] |  Normal |
+| SAVI | 0.410 | 0.423 | [-0.35, 0.97] |  Normal |
 
----
-
-*Informe generado automáticamente por `notebooks/analisis_estadistico_vista_minable.py`*
