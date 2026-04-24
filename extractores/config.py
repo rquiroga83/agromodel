@@ -164,6 +164,7 @@ DIRS = {
     'target_eva':    os.path.join(RAW_DIR, 'target', 'eva'),
     'target_monitoreo': os.path.join(RAW_DIR, 'target', 'monitoreo'),
     'target_sipra':  os.path.join(RAW_DIR, 'target', 'sipra'),
+    'target_mgn':    os.path.join(RAW_DIR, 'target', 'mgn'),
 }
 
 def crear_directorios():
@@ -247,21 +248,61 @@ UPRA_MONITOREO = {
 }
 
 UPRA_APTITUD = {
-    # Cultivos relevantes para Cundinamarca con nombres confirmados en el servidor
+    # Capas de aptitud SIPRA alineadas con los TOP-12 cultivos EVA de Cundinamarca.
+    # (Papa, Caña, Café, Maíz, Plátano, Mango, Frijol, Cacao, Arveja, Palma, Banano, Naranja)
+    # NOTA: UPRA NO publica capas de aptitud para Arveja ni Naranja — estos cultivos
+    # solo reciben etiqueta via EVA municipal; el proxy No_apto ignora ausencia.
+    # ── Papa ──
     'papa_capiro_s1':   f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_papa_diacol_capiro_sem_1/MapServer/0',
     'papa_capiro_s2':   f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_papa_diacol_capiro_sem_2/MapServer/0',
     'papa_s1':          f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_papa_sem_1_Dic2019/MapServer/0',
     'papa_s2':          f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_papa_sem_2_Dic2019/MapServer/0',
+    # ── Café ──
     'cafe':             f'{UPRA_BASE}/aptitud_uso_suelo/Aptitud_Cafe_Jul2022/MapServer/0',
+    # ── Maíz ──
     'maiz_s1':          f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_maiz_sem_1_diciembre_2019/MapServer/0',
     'maiz_s2':          f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_maiz_sem_2_diciembre_2019/MapServer/0',
+    # ── Caña panelera ──
+    'cana_panelera':    f'{UPRA_BASE}/aptitud_uso_suelo/Aptitud_Cultivo_Comercial_Cana_Panelera_Oct2020/MapServer/0',
+    # ── Cacao ──
+    'cacao':            f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_cacao_diciembre_2019/MapServer/0',
+    # ── Frijol ──
+    'frijol':           f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_frijol_comercial/MapServer/0',
+    # ── Palma ──
     'palma':            f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_palma_2018/MapServer/0',
+    # ── Plátano (agregado 2026-04) ──
+    'platano':          f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_platano/MapServer/0',
+    # ── Mango (agregado 2026-04) ──
+    'mango':            f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_mango_diciembre_2019/MapServer/0',
+    # ── Banano (agregado 2026-04) ──
+    'banano':           f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_banano/MapServer/0',
+    # ── Auxiliares (No_apto proxy): cultivos adicionales para ampliar cobertura de
+    # la intersección "No apta" de todos los cultivos ──
     'fresa':            f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_fresa_Dic2019/MapServer/0',
     'aguacate_hass':    f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_aguacate_hass_Dic2019/MapServer/0',
-    'cana_panelera':    f'{UPRA_BASE}/aptitud_uso_suelo/Aptitud_Cultivo_Comercial_Cana_Panelera_Oct2020/MapServer/0',
-    'cacao':            f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_cacao_diciembre_2019/MapServer/0',
-    'frijol':           f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_frijol_comercial/MapServer/0',
 }
+
+# Cultivos EVA canónicos (TOP-12 área cosechada 2019-2024 en Cundinamarca)
+# Cubren ~80% del área. Orden: area cosechada descendente.
+EVA_TOP_CULTIVOS = [
+    'Papa', 'Cana_Panelera', 'Cafe', 'Maiz', 'Platano', 'Mango',
+    'Frijol', 'Cacao', 'Arveja', 'Palma', 'Banano', 'Naranja',
+]
+# Conjunto completo de clases del modelo (14 clases)
+MODEL_CLASSES = EVA_TOP_CULTIVOS + ['Otros_cultivos', 'No_apto']
+
+# ──────────────────────────────────────────────────────────────
+# DANE MGN — Marco Geoestadístico Nacional (Municipios)
+# Se usan endpoints IGAC/ArcGIS públicos como fuente primaria; si fallan,
+# se permite colocar manualmente un shapefile en RAW_DIR/mgn/.
+# ──────────────────────────────────────────────────────────────
+DANE_MGN_URLS = [
+    # ESRI Colombia - Municipios 2024 (verificado 2026-04: campos
+    # MpCodigo [5-6 dig DANE], MpNombre, Depto [nombre depto])
+    'https://services2.arcgis.com/RVvWzU3lgJISqdke/arcgis/rest/services/Municipios_2024/FeatureServer/0',
+    # Alternativa: versión MapServer del mismo recurso
+    'https://services2.arcgis.com/RVvWzU3lgJISqdke/arcgis/rest/services/Municipios_2024/MapServer/0',
+]
 
 # ──────────────────────────────────────────────────────────────
 # SoilGrids 2.0 (ISRIC)

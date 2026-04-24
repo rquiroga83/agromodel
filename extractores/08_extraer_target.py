@@ -121,66 +121,121 @@ def descargar_eva():
 # ═══════════════════════════════════════════════════════════════
 # 2. MONITOREO SATELITAL DE CULTIVOS (UPRA)
 # ═══════════════════════════════════════════════════════════════
-def descargar_capa_arcgis(url, output_path, filtro_depto=True, max_features=50000):
+def descargar_capa_arcgis(url, output_path, filtro_depto=True, max_features=50000,
+                          page_size=1000, use_bbox=True):
     """
-    Descarga una Feature Layer de ArcGIS REST en formato GeoJSON.
-    Pagina de a 2000 registros.
+    Descarga una Feature Layer de ArcGIS REST en formato GeoJSON con:
+      - Filtro espacial por bbox Cundinamarca (server-side, ahorra ancho de banda)
+      - Fallback a filtro por campo cod_depart/COD_DEPTO si el bbox falla
+      - Checkpointing a `{output_path}.part.json` cada 10 páginas (resume)
+      - Reintentos con backoff exponencial (10→20→40→80→160s, máx 5)
+
     Retorna True si descargó datos, False si el servicio no existe o está vacío.
     """
     if os.path.exists(output_path):
         print(f"  Ya existe: {output_path}")
         return True
 
-    # Intentar filtro por departamento; si falla, sin filtro
+    # ── Checkpoint: si hay .part previo, reanudar ──
+    part_path = output_path + '.part.json'
+    all_features = []
+    offset = 0
+    if os.path.exists(part_path):
+        try:
+            with open(part_path, 'r', encoding='utf-8') as f:
+                cp = json.load(f)
+            all_features = cp.get('features', [])
+            offset = cp.get('next_offset', len(all_features))
+            print(f"  Reanudando desde checkpoint: {len(all_features):,} features,"
+                  f" offset={offset}")
+        except Exception as e:
+            print(f"  Checkpoint corrupto ({e}); empezando desde 0.")
+            all_features = []
+            offset = 0
+
+    # ── Opciones de filtrado (primero bbox, luego campo depto, luego todo) ──
     where_options = []
+    geom_params_options = []
+
+    if use_bbox:
+        # Filtro espacial: envelope Cundinamarca en EPSG:4326
+        xmin, ymin, xmax, ymax = BBOX_WGS84
+        geom_params_options.append({
+            'geometry': f'{xmin},{ymin},{xmax},{ymax}',
+            'geometryType': 'esriGeometryEnvelope',
+            'inSR': '4326',
+            'spatialRel': 'esriSpatialRelIntersects',
+        })
+
     if filtro_depto:
-        where_options = [f"cod_depart = '{DEPT_DANE}'", f"COD_DEPTO = '{DEPT_DANE}'", 'OBJECTID>0']
+        where_options = [
+            f"cod_depart = '{DEPT_DANE}'",
+            f"COD_DEPTO = '{DEPT_DANE}'",
+            'OBJECTID>0',
+        ]
     else:
         where_options = ['OBJECTID>0']
 
-    all_features = []
-    offset = 0
-    errores_consecutivos = 0
-    where = where_options[0]
+    # Índices del filtro actual
+    geom_idx = 0  # qué geom_params estamos usando (0..len-1) o -1 = sin bbox
     where_idx = 0
 
-    while True:
-        params = {
-            'where': where,
+    def _params_actuales():
+        p = {
+            'where': where_options[where_idx],
             'outFields': '*',
             'f': 'geojson',
             'returnGeometry': 'true',
             'resultOffset': offset,
-            'resultRecordCount': 2000,
+            'resultRecordCount': page_size,
             'outSR': '4326',
         }
+        if geom_idx >= 0 and geom_idx < len(geom_params_options):
+            p.update(geom_params_options[geom_idx])
+        return p
 
+    errores_consecutivos = 0
+    backoffs = [10, 20, 40, 80, 160]  # 5 reintentos
+
+    while True:
         try:
-            r = requests.get(f"{url}/query", params=params, timeout=120,
+            r = requests.get(f"{url}/query", params=_params_actuales(), timeout=180,
                              headers=HEADERS_GOV)
             if not r.content:
                 raise ValueError("Respuesta vacía del servidor")
             data = r.json()
         except Exception as e:
-            errores_consecutivos += 1
-            if errores_consecutivos >= 3:
-                print(f"    Servicio no disponible tras 3 intentos: {e}")
+            if errores_consecutivos >= len(backoffs):
+                print(f"    Servicio no disponible tras {len(backoffs)} intentos: {e}")
+                # Guardar checkpoint antes de abortar (resume en próxima ejecución)
+                _guardar_checkpoint(part_path, all_features, offset)
                 return False
-            print(f"    Error en offset {offset}: {e}. Reintentando en 10s...")
-            time.sleep(10)
+            wait = backoffs[errores_consecutivos]
+            errores_consecutivos += 1
+            print(f"    Error en offset {offset}: {e}. Reintentando en {wait}s"
+                  f" ({errores_consecutivos}/{len(backoffs)})...")
+            time.sleep(wait)
             continue
 
-        # Error de la API ArcGIS (servicio no encontrado, campo inválido, etc.)
+        # Error lógico de ArcGIS (campo inválido, servicio no soporta bbox, etc.)
         if 'error' in data:
             err_msg = data['error'].get('message', '')
             err_code = data['error'].get('code', 0)
-            # Intentar con siguiente opción de where si hay error de campo
-            if filtro_depto and where_idx < len(where_options) - 1:
-                where_idx += 1
-                where = where_options[where_idx]
-                print(f"    Filtro falló ({err_msg}), probando: {where}")
+
+            # Si el bbox falla (ej. servicio no soporta geometry), probar sin él
+            if geom_idx >= 0:
+                print(f"    Filtro bbox falló ({err_msg}); reintentando sin bbox.")
+                geom_idx = -1
                 errores_consecutivos = 0
                 continue
+
+            # Probar siguiente where si hay
+            if filtro_depto and where_idx < len(where_options) - 1:
+                where_idx += 1
+                print(f"    Filtro falló ({err_msg}); probando: {where_options[where_idx]}")
+                errores_consecutivos = 0
+                continue
+
             print(f"    Error ArcGIS [{err_code}]: {err_msg}. Abortando capa.")
             return False
 
@@ -190,23 +245,44 @@ def descargar_capa_arcgis(url, output_path, filtro_depto=True, max_features=5000
             break
 
         all_features.extend(features)
-        print(f"    -> {len(features)} features (total: {len(all_features)})")
+        print(f"    -> {len(features)} features (total: {len(all_features):,})")
+
+        # Checkpoint cada 10 páginas
+        offset += page_size
+        if (offset // page_size) % 10 == 0:
+            _guardar_checkpoint(part_path, all_features, offset)
 
         if len(all_features) >= max_features:
+            print(f"    Alcanzado max_features={max_features:,}; deteniendo.")
             break
 
-        offset += 2000
         time.sleep(1)
 
     if all_features:
         geojson = {'type': 'FeatureCollection', 'features': all_features}
-        with open(output_path, 'w') as f:
+        with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(geojson, f)
-        print(f"  Guardado: {output_path} ({len(all_features)} features)")
+        print(f"  Guardado: {output_path} ({len(all_features):,} features)")
+        # Limpiar checkpoint
+        if os.path.exists(part_path):
+            try:
+                os.remove(part_path)
+            except OSError:
+                pass
         return True
     else:
         print(f"  Sin features para esta capa (puede no haber datos en Cundinamarca).")
         return False
+
+
+def _guardar_checkpoint(part_path, features, next_offset):
+    """Persiste el progreso de descarga para poder reanudar."""
+    try:
+        cp = {'features': features, 'next_offset': next_offset}
+        with open(part_path, 'w', encoding='utf-8') as f:
+            json.dump(cp, f)
+    except Exception as e:
+        print(f"    [WARN] No se pudo guardar checkpoint: {e}")
 
 
 def descargar_monitoreo():
@@ -259,34 +335,34 @@ def main():
     print("="*70)
 
     if args.step == 'eva':
-        print("\n" + "─"*50)
+        print("\n" + "-"*50)
         print("1. EVA — Evaluaciones Agropecuarias Municipales")
-        print("─"*50)
+        print("-"*50)
         descargar_eva()
     elif args.step == 'monitoreo':
-        print("\n" + "─"*50)
+        print("\n" + "-"*50)
         print("2. MONITOREO SATELITAL DE CULTIVOS (UPRA)")
-        print("─"*50)
+        print("-"*50)
         descargar_monitoreo()
     elif args.step == 'sipra':
-        print("\n" + "─"*50)
+        print("\n" + "-"*50)
         print("3. ZONIFICACIÓN DE APTITUD (SIPRA)")
-        print("─"*50)
+        print("-"*50)
         descargar_sipra()
     else:
-        print("\n" + "─"*50)
+        print("\n" + "-"*50)
         print("1. EVA — Evaluaciones Agropecuarias Municipales")
-        print("─"*50)
+        print("-"*50)
         descargar_eva()
 
-        print("\n" + "─"*50)
+        print("\n" + "-"*50)
         print("2. MONITOREO SATELITAL DE CULTIVOS (UPRA)")
-        print("─"*50)
+        print("-"*50)
         descargar_monitoreo()
 
-        print("\n" + "─"*50)
+        print("\n" + "-"*50)
         print("3. ZONIFICACIÓN DE APTITUD (SIPRA)")
-        print("─"*50)
+        print("-"*50)
         descargar_sipra()
 
     print("\n" + "="*70)

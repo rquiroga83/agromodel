@@ -5,37 +5,42 @@ Construye la tabla rectangular (vista minable) que alimenta los modelos ML.
 
 Cada fila = un (pixel, semestre).  Cada columna = un feature o target.
 
+Clasificación multiclase (14 clases, alineada con EVA top-12 Cundinamarca):
+    Papa, Cana_Panelera, Cafe, Maiz, Platano, Mango, Frijol, Cacao,
+    Arveja, Palma, Banano, Naranja, Otros_cultivos, No_apto
+
+Etiquetado jerárquico de 3 niveles (con `sample_weight = confianza`):
+    L1 Monitoreo UPRA      → hard label,  confianza=1.0
+    L2 EVA municipal       → hard label = cultivo dominante del municipio,
+                              confianza = area_cultivo / area_agricola (0.3–0.7)
+    L3 No_apto (proxy)     → hard label,  confianza=0.4
+                              (SIPRA "No apta" en >=3 capas Y/O NDVI_max < 0.15)
+
 Entradas:
-  - processed/            → capas estáticas y mensuales armonizadas
-  - processed/temporal/   → estadísticos semestrales
-  - processed/engineered/ → features derivadas
-  - extractores/raw/target/ → EVA CSV, Monitoreo GeoJSON, SIPRA GeoJSON
+  - processed/                   → capas estáticas y mensuales armonizadas
+  - processed/temporal/          → estadísticos semestrales
+  - processed/engineered/        → features derivadas (incluye ndvi_max, piso_termico)
+  - extractores/raw/target/eva/       → CSV EVA UPRA + histórica
+  - extractores/raw/target/monitoreo/ → GeoJSON polígonos UPRA
+  - extractores/raw/target/sipra/     → GeoJSON aptitud (solo para No_apto)
+  - extractores/raw/target/mgn/       → GeoJSON municipios DANE
 
 Salida:
   - vista_minable/vista_minable_full.parquet
-
-Operaciones:
-  1. Crear máscara válida (píxeles con datos en DEM)
-  2. Rasterizar polígonos de monitoreo UPRA → máscara de cultivos georreferenciados
-  3. Rasterizar polígonos SIPRA → máscara de aptitud por cultivo
-  4. Cargar EVA municipal → rendimiento y cultivos por municipio-semestre
-  5. Muestreo estratificado: ~500K–1M píxeles
-  6. Extraer ~45 features por píxel del stack de rasters (Sentinel-1 excluido)
-  7. Asignar etiquetas target con prioridad: monitoreo > EVA > SIPRA
-  8. Guardar como Parquet
+  - vista_minable/catalogo_cultivos.json  (id estable según MODEL_CLASSES)
 
 Prerequisitos:
-    1. Haber ejecutado extractores (01-08) para generar raw/
+    1. Haber ejecutado extractores (01-09) para generar raw/
     2. Haber ejecutado procesamiento/01_armonizar_espacial.py
     3. Haber ejecutado procesamiento/02_armonizar_temporal.py
-    4. Haber ejecutado procesamiento/03_feature_engineering.py  (recomendado)
+    4. Haber ejecutado procesamiento/03_feature_engineering.py
 
 Uso:
     cd d:\\trabajo\\agroplus
-    uv run procesamiento/04_construir_vista_minable.py                          # Pipeline completo
-    uv run procesamiento/04_construir_vista_minable.py --step preparar         # Solo paso 1-3 (máscaras + rasterización)
-    uv run procesamiento/04_construir_vista_minable.py --step muestrear        # Solo paso 4-5 (EVA + muestreo píxeles)
-    uv run procesamiento/04_construir_vista_minable.py --max-pixeles 200000    # Limitar muestreo (default: 500,000)
+    uv run procesamiento/04_construir_vista_minable.py                     # Pipeline completo
+    uv run procesamiento/04_construir_vista_minable.py --step preparar    # Máscaras + rasterización
+    uv run procesamiento/04_construir_vista_minable.py --step muestrear   # Muestreo píxeles
+    uv run procesamiento/04_construir_vista_minable.py --max-pixeles 200000
 
 Dependencias (ya en pyproject.toml):
     uv sync
@@ -53,7 +58,10 @@ import numpy as np
 import pandas as pd
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'extractores'))
-from config import SEMESTRES, BBOX_WGS84, DEPT_DANE, RESOLUCION_M
+from config import (
+    SEMESTRES, BBOX_WGS84, DEPT_DANE, RESOLUCION_M,
+    EVA_TOP_CULTIVOS, MODEL_CLASSES,
+)
 
 # ==================================================================
 # CONFIGURACION
@@ -92,6 +100,50 @@ def _get_transform_shape():
     dem_path = os.path.join(PROC_DIR, 'topo', f'dem_elevacion_{RESOLUCION_M}m.tif')
     with rasterio.open(dem_path) as src:
         return src.transform, src.height, src.width, src.crs, src.profile.copy()
+
+
+# ==================================================================
+# NORMALIZACION DE NOMBRES DE CULTIVO
+# ==================================================================
+
+def _sin_acentos(s):
+    """Remueve acentos simples y normaliza N con tilde."""
+    return (s.replace('Á', 'A').replace('É', 'E').replace('Í', 'I')
+              .replace('Ó', 'O').replace('Ú', 'U').replace('Ñ', 'N')
+              .replace('á', 'a').replace('é', 'e').replace('í', 'i')
+              .replace('ó', 'o').replace('ú', 'u').replace('ñ', 'n'))
+
+
+# Reglas de mapeo EVA/monitoreo -> 14 clases del modelo.
+# Se evalúan en orden; el primer prefijo que matchee gana.
+_REGLAS_NORMALIZACION = [
+    ('papa',     'Papa'),
+    ('cana',     'Cana_Panelera'),     # caña panelera, caña azucarera, caña miel
+    ('cafe',     'Cafe'),
+    ('maiz',     'Maiz'),
+    ('platano',  'Platano'),
+    ('mango',    'Mango'),
+    ('frijol',   'Frijol'),
+    ('cacao',    'Cacao'),
+    ('arveja',   'Arveja'),
+    ('palma',    'Palma'),              # palma africana, palma aceitera
+    ('banano',   'Banano'),
+    ('naranja',  'Naranja'),
+]
+
+
+def _normalizar_cultivo(nombre_raw):
+    """Mapea nombre EVA/monitoreo -> clase canónica (14 clases MODEL_CLASSES).
+
+    Cualquier cultivo fuera del top-12 cae en 'Otros_cultivos'.
+    """
+    if nombre_raw is None or (isinstance(nombre_raw, float) and np.isnan(nombre_raw)):
+        return 'Otros_cultivos'
+    n = _sin_acentos(str(nombre_raw).strip().lower())
+    for prefijo, clase in _REGLAS_NORMALIZACION:
+        if n.startswith(prefijo):
+            return clase
+    return 'Otros_cultivos'
 
 
 # ==================================================================
@@ -247,157 +299,25 @@ def rasterizar_monitoreo(profile):
 
 
 # ==================================================================
-# PASO 3: RASTERIZAR SIPRA → aptitud por cultivo
-# ==================================================================
-
-def rasterizar_sipra(profile):
-    """
-    Rasteriza polígonos SIPRA de aptitud.
-    Retorna dict: {cultivo: {aptitud_clase: mascara_bool}}
-    Solo incluye polígonos de Cundinamarca (cod_depart='25').
-    """
-    import geopandas as gpd
-    from rasterio.features import rasterize
-
-    print("\n" + "=" * 70)
-    print("PASO 3: RASTERIZAR SIPRA APTITUD")
-    print("=" * 70)
-
-    sipra_dir = os.path.join(RAW_DIR, 'target', 'sipra')
-    if not os.path.exists(sipra_dir):
-        print("  Directorio SIPRA no encontrado. Saltando.")
-        return {}
-
-    archivos = sorted(glob.glob(os.path.join(sipra_dir, 'aptitud_*.geojson')))
-    if not archivos:
-        print("  Sin archivos SIPRA.")
-        return {}
-
-    transform = profile['transform']
-    height = profile['height']
-    width = profile['width']
-
-    # Mapeo de aptitud a confianza
-    # Los valores SIPRA son como: 'Aptitud alta', 'Aptitud baja', 'No apta', 'Exclusión legal'
-    APTITUD_CONFIANZA = {
-        'alta': 0.5, 'media': 0.4, 'baja': 0.2, 'marginal': 0.15,
-        'no apta': 0.0, 'exclusion': 0.0,
-    }
-
-    def _normalizar_aptitud(valor):
-        """Normaliza 'Aptitud alta' → 'alta', 'No apta' → 'no apta', etc."""
-        v = str(valor).strip().lower()
-        if 'alta' in v and 'marginal' not in v:
-            return 'alta'
-        elif 'media' in v:
-            return 'media'
-        elif 'baja' in v:
-            return 'baja'
-        elif 'marginal' in v:
-            return 'marginal'
-        elif 'no apta' in v or 'no_apta' in v:
-            return 'no apta'
-        elif 'exclusi' in v:
-            return 'exclusion'
-        return v
-
-    # Permitir lectura de GeoJSON grandes (Palma >500MB)
-    os.environ['OGR_GEOJSON_MAX_OBJ_SIZE'] = '0'  # 0 = sin límite
-
-    sipra_por_cultivo = {}
-
-    for fpath in archivos:
-        nombre = os.path.basename(fpath).replace('aptitud_', '').replace('.geojson', '')
-        # Limpiar nombre: papa_capiro_s1 → Papa Capiro
-        cultivo_parts = []
-        for p in nombre.split('_'):
-            if p in ('s1', 's2'):
-                continue
-            cultivo_parts.append(p.title())
-        cultivo = ' '.join(cultivo_parts)
-
-        print(f"  Procesando: {cultivo} ({os.path.basename(fpath)})...")
-
-        try:
-            # Leer solo features de Cundinamarca para reducir memoria
-            gdf = gpd.read_file(fpath)
-        except Exception as e:
-            print(f"    Error leyendo: {e}")
-            continue
-
-        if gdf.empty:
-            continue
-
-        # Filtrar por Cundinamarca
-        col_depto = None
-        for c in ['cod_depart', 'cod_depto', 'COD_DEPART', 'COD_DEPTO']:
-            if c in gdf.columns:
-                col_depto = c
-                break
-
-        if col_depto:
-            gdf = gdf[gdf[col_depto].astype(str).str.strip() == DEPT_DANE]
-
-        if gdf.empty:
-            print(f"    Sin datos para Cundinamarca.")
-            continue
-
-        # Reproyectar
-        if gdf.crs is None or str(gdf.crs).upper() != TARGET_CRS:
-            gdf = gdf.to_crs(TARGET_CRS)
-
-        # Buscar campo de aptitud
-        apt_col = None
-        for c in ['aptitud', 'APTITUD', 'Aptitud']:
-            if c in gdf.columns:
-                apt_col = c
-                break
-
-        if apt_col is None:
-            print(f"    Campo 'aptitud' no encontrado. Saltando.")
-            continue
-
-        # Rasterizar por clase de aptitud
-        cultivo_mascaras = {}
-        for apt_clase in gdf[apt_col].dropna().unique():
-            apt_key = _normalizar_aptitud(apt_clase)
-            confianza = APTITUD_CONFIANZA.get(apt_key, 0.0)
-            if confianza == 0.0:
-                continue  # Ignorar "No apta" y "Exclusión legal"
-
-            subset = gdf[gdf[apt_col] == apt_clase]
-            geoms = [(g, 1) for g in subset.geometry if g is not None and g.is_valid]
-            if not geoms:
-                continue
-
-            raster = rasterize(
-                geoms, out_shape=(height, width),
-                transform=transform, fill=0, dtype='uint8',
-            )
-            mascara = raster > 0
-            n = np.count_nonzero(mascara)
-            if n > 0:
-                cultivo_mascaras[apt_key] = (mascara, confianza)
-                print(f"    {apt_clase}: {n:,} píxeles (confianza={confianza})")
-
-        if cultivo_mascaras:
-            sipra_por_cultivo[cultivo] = cultivo_mascaras
-
-    print(f"\n  Total: {len(sipra_por_cultivo)} cultivos con aptitud rasterizada")
-    return sipra_por_cultivo
-
-
-# ==================================================================
-# PASO 4: CARGAR EVA MUNICIPAL
+# PASO 3: CARGAR EVA MUNICIPAL (solo rendimiento, no etiqueta)
 # ==================================================================
 
 def cargar_eva():
     """
-    Carga EVA y retorna DataFrame con cultivos por municipio-semestre.
-    Columnas: cod_mun, semestre, cultivo, rendimiento, area_cosechada
+    Carga EVA y retorna:
+      - eva_agg: DataFrame con (cod_mun, semestre, cultivo_norm, area, score, rend).
+      - eva_top_dict: dict {(cod_mun, semestre): {cultivo_norm, score, rendimiento}}
+        con el cultivo dominante (mayor área) — usado por etiquetado hard (compat).
+      - eva_dist_dict: dict {(cod_mun, semestre): {cultivo_norm: score, ...}}
+        con la DISTRIBUCIÓN COMPLETA de cultivos — usado por etiquetado soft
+        (Alternativa A, Learning from Label Proportions).
+
+    El agregado a clase canónica es clave: si un municipio tiene
+    "Papa Comun" + "Papa Criolla" + "Papa Parda", todos son 'Papa' y
+    su score combinado puede superar al segundo cultivo.
     """
     print("\n" + "=" * 70)
-    print("PASO 4: CARGAR EVA MUNICIPAL")
+    print("PASO 3: CARGAR EVA MUNICIPAL")
     print("=" * 70)
 
     eva_dir = os.path.join(RAW_DIR, 'target', 'eva')
@@ -409,9 +329,9 @@ def cargar_eva():
     if os.path.exists(upra_path):
         df = pd.read_csv(upra_path, dtype=str)
         df_clean = pd.DataFrame({
-            'cod_mun': df['c_digo_dane_municipio'].str.strip(),
+            'cod_mun': df['c_digo_dane_municipio'].str.strip().str.zfill(5),
             'year': pd.to_numeric(df['a_o'], errors='coerce'),
-            'cultivo': df['cultivo'].str.strip().str.title(),
+            'cultivo': df['cultivo'].str.strip(),
             'rendimiento': pd.to_numeric(df['rendimiento'], errors='coerce'),
             'area_cosechada': pd.to_numeric(df['rea_cosechada'], errors='coerce'),
             'area_sembrada': pd.to_numeric(df['rea_sembrada'], errors='coerce'),
@@ -425,9 +345,9 @@ def cargar_eva():
     if os.path.exists(hist_path):
         df = pd.read_csv(hist_path, dtype=str)
         df_clean = pd.DataFrame({
-            'cod_mun': df['c_d_mun'].str.strip(),
+            'cod_mun': df['c_d_mun'].str.strip().str.zfill(5),
             'year': pd.to_numeric(df['a_o'], errors='coerce'),
-            'cultivo': df['cultivo'].str.strip().str.title(),
+            'cultivo': df['cultivo'].str.strip(),
             'rendimiento': pd.to_numeric(df['rendimiento_t_ha'], errors='coerce'),
             'area_cosechada': pd.to_numeric(df['rea_cosechada_ha'], errors='coerce'),
             'area_sembrada': pd.to_numeric(df['rea_sembrada_ha'], errors='coerce'),
@@ -438,39 +358,239 @@ def cargar_eva():
 
     if not dfs:
         print("  Sin datos EVA.")
-        return pd.DataFrame()
+        return pd.DataFrame(), {}, {}
 
     eva = pd.concat(dfs, ignore_index=True)
     eva = eva.dropna(subset=['cod_mun', 'year', 'cultivo'])
     eva['year'] = eva['year'].astype(int)
 
-    # Asignar semestre: cultivos transitorios se siembran en A y B.
-    # Duplicar cada registro para ambos semestres del año.
-    rows_a = eva.copy()
-    rows_a['semestre'] = eva['year'].astype(str) + 'A'
-    rows_b = eva.copy()
-    rows_b['semestre'] = eva['year'].astype(str) + 'B'
+    # Normalizar cultivo -> una de las 14 clases
+    eva['cultivo_norm'] = eva['cultivo'].apply(_normalizar_cultivo)
+    eva['area_cosechada'] = eva['area_cosechada'].fillna(0)
+
+    # Expandir cada registro a los dos semestres del año (transitorios siembran A y B).
+    # Nota: perennes (cacao, cafe, palma) realmente cosechan todo el año; esta
+    # duplicación está bien porque representamos presencia del cultivo, no siembra.
+    rows_a = eva.copy(); rows_a['semestre'] = eva['year'].astype(str) + 'A'
+    rows_b = eva.copy(); rows_b['semestre'] = eva['year'].astype(str) + 'B'
     eva_sem = pd.concat([rows_a, rows_b], ignore_index=True)
 
-    # Calcular score de aptitud revelada: area_cosechada relativa dentro del municipio-semestre
-    eva_sem['area_cosechada'] = eva_sem['area_cosechada'].fillna(0)
-    total_por_mun_sem = eva_sem.groupby(['cod_mun', 'semestre'])['area_cosechada'].transform('sum')
-    eva_sem['score_aptitud'] = np.where(
-        total_por_mun_sem > 0,
-        eva_sem['area_cosechada'] / total_por_mun_sem,
-        0.0
+    # Agrupar por (cod_mun, semestre, cultivo_norm): sumar áreas.
+    eva_agg = (
+        eva_sem.groupby(['cod_mun', 'semestre', 'cultivo_norm'], as_index=False)
+        .agg(area_cosechada=('area_cosechada', 'sum'),
+             rendimiento=('rendimiento', 'median'))
     )
 
-    # Cultivos principales por municipio-semestre (top por area)
-    eva_sem = eva_sem.sort_values('area_cosechada', ascending=False)
-    eva_top = eva_sem.groupby(['cod_mun', 'semestre']).head(5)  # top 5 cultivos
+    # score_aptitud = área_de_esta_clase / área_agrícola_total_del_municipio_semestre
+    total = eva_agg.groupby(['cod_mun', 'semestre'])['area_cosechada'].transform('sum')
+    eva_agg['score_aptitud'] = np.where(total > 0, eva_agg['area_cosechada'] / total, 0.0)
 
-    n_mun = eva_top['cod_mun'].nunique()
-    n_cultivos = eva_top['cultivo'].nunique()
-    print(f"  Total EVA: {len(eva_top):,} registros, "
-          f"{n_mun} municipios, {n_cultivos} cultivos únicos")
+    # Top cultivo (mayor área normalizada) por municipio-semestre
+    eva_sorted = eva_agg.sort_values('area_cosechada', ascending=False)
+    eva_top = eva_sorted.groupby(['cod_mun', 'semestre']).head(1)
 
-    return eva_top
+    eva_top_dict = {}
+    for _, r in eva_top.iterrows():
+        eva_top_dict[(r['cod_mun'], r['semestre'])] = {
+            'cultivo_norm': r['cultivo_norm'],
+            'score': float(r['score_aptitud']),
+            'rendimiento': (float(r['rendimiento']) if pd.notna(r['rendimiento']) else None),
+        }
+
+    # Distribución COMPLETA por (cod_mun, semestre) — para etiquetado soft (LLP).
+    # Cada entrada: {cultivo_norm: score_aptitud, ...} con TODOS los cultivos
+    # reportados por EVA en ese municipio-semestre (score suma ~1.0).
+    eva_dist_dict = {}
+    for (cod, sem), grp in eva_agg.groupby(['cod_mun', 'semestre']):
+        dist = {r['cultivo_norm']: float(r['score_aptitud']) for _, r in grp.iterrows()
+                if r['score_aptitud'] > 0}
+        if dist:
+            eva_dist_dict[(cod, sem)] = dist
+
+    n_mun = eva_agg['cod_mun'].nunique()
+    print(f"  EVA agregado: {len(eva_agg):,} (mun,sem,clase), "
+          f"{n_mun} municipios, {eva_agg['cultivo_norm'].nunique()} clases canónicas")
+    print(f"  Top-cultivo por (mun,sem): {len(eva_top_dict):,} entradas")
+    print(f"  Distribución completa por (mun,sem): {len(eva_dist_dict):,} entradas "
+          f"(promedio {np.mean([len(d) for d in eva_dist_dict.values()]):.1f} cultivos/mun)")
+
+    return eva_agg, eva_top_dict, eva_dist_dict
+
+
+# ==================================================================
+# PASO 3b: RASTERIZAR MGN-DANE (municipios) — lookup cod_mun por pixel
+# ==================================================================
+
+def rasterizar_municipios(profile):
+    """
+    Rasteriza el shapefile MGN-DANE al grid del proyecto.
+    Cada píxel contiene int(cod_dane) del municipio (0 = fuera de Cundinamarca).
+
+    Retorna ndarray int32 o None si el MGN no está descargado.
+    """
+    import geopandas as gpd
+    from rasterio.features import rasterize
+
+    print("\n" + "=" * 70)
+    print("PASO 3b: RASTERIZAR MGN-DANE")
+    print("=" * 70)
+
+    mgn_path = os.path.join(RAW_DIR, 'target', 'mgn', 'municipios_cundinamarca.geojson')
+    if not os.path.exists(mgn_path):
+        print(f"  MGN-DANE no encontrado: {mgn_path}")
+        print("  Ejecutar: python extractores/09_extraer_municipios_dane.py")
+        print("  Se omitirá el nivel L2 (EVA municipal) del etiquetado.")
+        return None
+
+    gdf = gpd.read_file(mgn_path)
+    if gdf.crs is None or str(gdf.crs).upper() != TARGET_CRS:
+        gdf = gdf.to_crs(TARGET_CRS)
+
+    if 'cod_dane' not in gdf.columns:
+        print(f"  MGN sin columna 'cod_dane'; columnas disponibles: {list(gdf.columns)}")
+        return None
+
+    gdf['cod_int'] = gdf['cod_dane'].astype(str).str.zfill(5).astype(int)
+    shapes = [
+        (geom, int(cod)) for geom, cod in zip(gdf.geometry, gdf['cod_int'])
+        if geom is not None and geom.is_valid
+    ]
+    if not shapes:
+        print("  Sin geometrías válidas en MGN.")
+        return None
+
+    raster = rasterize(
+        shapes,
+        out_shape=(profile['height'], profile['width']),
+        transform=profile['transform'],
+        fill=0,
+        dtype='int32',
+    )
+    n_pixeles = np.count_nonzero(raster)
+    n_mpios = gdf['cod_dane'].nunique()
+    print(f"  Municipios rasterizados: {n_mpios} ({n_pixeles:,} píxeles)")
+    return raster
+
+
+# ==================================================================
+# PASO 3c: RASTERIZAR SIPRA "No apta" — proxy para clase No_apto
+# ==================================================================
+
+def rasterizar_sipra_noapta(profile):
+    """
+    Rasteriza todas las capas SIPRA presentes. Retorna un raster int16 con
+    el CONTEO de capas que declaran 'No apta' en cada píxel. Un valor alto
+    (>=3) indica que ese píxel es no apto para múltiples cultivos.
+
+    Se usa junto con NDVI_max bajo para detectar la clase No_apto en
+    asignar_target() (nivel L3). Este uso es defensible respecto al
+    problema original de fuga (cuando SIPRA se usaba para asignar cultivos
+    positivos): aquí solo se identifica la NEGACIÓN/ausencia de aptitud,
+    no se reinyecta información sobre qué cultivo corresponde donde.
+
+    Retorna ndarray int16 o None si no hay SIPRA disponible.
+    """
+    import geopandas as gpd
+    from rasterio.features import rasterize
+
+    print("\n" + "=" * 70)
+    print("PASO 3c: RASTERIZAR SIPRA (solo para proxy No_apto)")
+    print("=" * 70)
+
+    sipra_dir = os.path.join(RAW_DIR, 'target', 'sipra')
+    if not os.path.exists(sipra_dir):
+        print("  Directorio SIPRA no encontrado.")
+        return None
+
+    archivos = sorted(glob.glob(os.path.join(sipra_dir, 'aptitud_*.geojson')))
+    if not archivos:
+        print("  Sin archivos SIPRA.")
+        return None
+
+    # Campos típicos que contienen la etiqueta de aptitud
+    campos_aptitud = [
+        'aptitud', 'apt_uso', 'apt_general', 'categoria', 'clase',
+        'APTITUD', 'APT_USO', 'APT_GENERAL', 'CATEGORIA', 'CLASE',
+    ]
+
+    conteo_noapta = np.zeros((profile['height'], profile['width']), dtype=np.int16)
+    n_capas = 0
+
+    for fpath in archivos:
+        nombre = os.path.basename(fpath)
+        try:
+            gdf = gpd.read_file(fpath)
+        except Exception as e:
+            print(f"  Error leyendo {nombre}: {e}")
+            continue
+
+        if gdf.empty:
+            continue
+
+        if gdf.crs is None or str(gdf.crs).upper() != TARGET_CRS:
+            gdf = gdf.to_crs(TARGET_CRS)
+
+        col_apt = next((c for c in campos_aptitud if c in gdf.columns), None)
+        if col_apt is None:
+            print(f"    [{nombre}] sin campo de aptitud; omitiendo.")
+            continue
+
+        mask_no = gdf[col_apt].astype(str).str.lower().str.contains('no apta', na=False)
+        gdf_no = gdf[mask_no]
+        if gdf_no.empty:
+            continue
+
+        shapes = [(g, 1) for g in gdf_no.geometry if g is not None and g.is_valid]
+        if not shapes:
+            continue
+
+        raster = rasterize(
+            shapes,
+            out_shape=(profile['height'], profile['width']),
+            transform=profile['transform'],
+            fill=0,
+            dtype='uint8',
+        )
+        conteo_noapta += raster
+        n_capas += 1
+        print(f"    [{nombre}] No-apta rasterizada")
+
+    if n_capas == 0:
+        print("  SIPRA sin datos válidos; no se usará proxy No_apto via SIPRA.")
+        return None
+
+    print(f"  SIPRA consolidado: {n_capas} capas, max conteo = {conteo_noapta.max()}")
+    return conteo_noapta
+
+
+def cargar_ndvi_max_ultimo_anio():
+    """
+    Carga el NDVI_max más reciente disponible para usarlo en el proxy No_apto.
+    Se agrega (max) los semestres del último año; si no existe engineered,
+    retorna None.
+    """
+    eng_ndvi_dir = ENG_DIR
+    # Último año disponible = penúltimo en SEMESTRES (el último suele estar incompleto)
+    candidatos = []
+    for sem in reversed(SEMESTRES):
+        path = os.path.join(eng_ndvi_dir, f'ndvi_max_{sem["label"]}.tif')
+        if os.path.exists(path):
+            candidatos.append(path)
+        if len(candidatos) >= 4:  # ~2 años
+            break
+
+    if not candidatos:
+        print("  NDVI_max no disponible; se omitirá ese criterio en proxy No_apto.")
+        return None
+
+    stack = []
+    for p in candidatos:
+        arr, _ = _leer_raster(p)
+        stack.append(arr)
+    arr_max = np.fmax.reduce(stack)
+    print(f"  NDVI_max global (últimos {len(candidatos)} semestres) cargado.")
+    return arr_max
 
 
 # ==================================================================
@@ -792,20 +912,45 @@ def extraer_features(df_pixeles, sem_label, capas_estaticas_cache=None):
 # PASO 7: ASIGNAR ETIQUETAS TARGET
 # ==================================================================
 
-def asignar_target(df_pixeles, sem_label, monitoreo_por_semestre,
-                   sipra_por_cultivo, eva_df, profile):
+def asignar_target(df_pixeles, sem_label, monitoreo_por_semestre, eva_agg,
+                   eva_top_dict, eva_dist_dict, mun_raster, sipra_noapta,
+                   ndvi_max_global, profile):
     """
-    Asigna etiquetas de cultivo con prioridad:
-      1. Monitoreo UPRA (confianza=1.0) — polígonos georreferenciados
-      2. EVA municipal (confianza=0.7) — distribución a nivel municipal
-      3. SIPRA aptitud (confianza=0.5) — zonas de aptitud
+    Asigna etiquetas en 3 niveles + DISTRIBUCIÓN DE PROBABILIDAD (soft labels).
 
-    Retorna DataFrame con columnas: cultivo, confianza, fuente, rendimiento_tha
+    Para cada píxel produce:
+      - `cultivo`: argmax de la distribución (compat con pipeline hard-label actual)
+      - `confianza`: meta-confianza de la fuente (1.0/0.7/0.4 según L1/L2/L3)
+      - `prob_<cultivo>`: 14 columnas con la distribución P(clase | píxel)
+
+    Lógica por nivel:
+
+      L1 Monitoreo UPRA (conf=1.0)
+         Distribución one-hot: P(cultivo_UPRA) = 1.0, resto = 0
+
+      L2 EVA municipal (conf=0.7)
+         Distribución completa del municipio-semestre:
+           P(c) = area_cosechada_c / area_agrícola_total  para c ∈ EVA_municipio
+         Esto implementa Learning from Label Proportions (LLP):
+         en lugar de mentir diciendo "este pixel es Papa", decimos
+         "este pixel tiene 40% Papa, 35% Café, 25% Frijol" (las proporciones
+         reales del municipio según EVA).
+
+      L3 No_apto (conf=0.4)
+         Distribución one-hot: P(No_apto) = 1.0, resto = 0
+         Se activa cuando SIPRA (>=3 capas "No apta") Y/O NDVI_max < 0.15.
+
+    Píxeles sin etiqueta quedan con prob=0 en todas las clases y se filtran.
     """
-    import rasterio
-    from pyproj import Transformer
-
     n = len(df_pixeles)
+    K = len(MODEL_CLASSES)
+    cultivo_a_id = {c: i for i, c in enumerate(MODEL_CLASSES)}
+    id_otros = cultivo_a_id['Otros_cultivos']
+
+    # Matriz de probabilidades (N × 14) — core del etiquetado soft
+    prob_matrix = np.zeros((n, K), dtype=np.float32)
+
+    # Compat: hard-label derivados (para notebooks viejos)
     cultivo = np.full(n, '', dtype=object)
     confianza = np.zeros(n, dtype=np.float32)
     fuente = np.full(n, '', dtype=object)
@@ -814,124 +959,116 @@ def asignar_target(df_pixeles, sem_label, monitoreo_por_semestre,
     rows = df_pixeles['row'].values
     cols = df_pixeles['col'].values
 
-    # --- Prioridad 3: SIPRA (se sobreescribe por las de mayor prioridad) ---
-    if sipra_por_cultivo:
-        for cult_nombre, mascaras_apt in sipra_por_cultivo.items():
-            # Usar la aptitud más alta disponible
-            mejor_apt = None
-            mejor_conf = 0
-            for apt_clase, (masc, conf) in mascaras_apt.items():
-                if conf > mejor_conf:
-                    mejor_apt = (masc, conf, apt_clase)
-                    mejor_conf = conf
+    # cod_mun por píxel (para GroupKFold espacial downstream). 0 = fuera de MGN.
+    if mun_raster is not None:
+        cod_mun_arr = mun_raster[rows, cols].astype(np.int32)
+    else:
+        cod_mun_arr = np.zeros(n, dtype=np.int32)
 
-            if mejor_apt:
-                masc, conf, apt = mejor_apt
-                hits = masc[rows, cols]
-                for i in np.where(hits)[0]:
-                    if confianza[i] < conf:
-                        cultivo[i] = cult_nombre
-                        confianza[i] = conf
-                        fuente[i] = 'sipra'
-
-    # --- Prioridad 2: EVA municipal ---
-    if not eva_df.empty:
-        # Necesitamos mapear píxeles a municipios.
-        # Usar la capa IGAC de municipios si existe, o asignar por coordenada.
-        # Estrategia: usar un raster de códigos municipales si está disponible.
-        # Si no, intentamos con las coordenadas X,Y → municipio más cercano vía EVA.
-        # Por ahora usamos un enfoque simplificado: asignar el cultivo dominante
-        # del municipio basado en la coordenada.
-
-        # NOTA: Se usa asignación por piso térmico en vez de municipios
-        # (no hay raster de municipios disponible con granularidad suficiente).
-        # En el futuro se podría integrar un shapefile de límites municipales.
-
-        # Mapear píxeles a municipios usando un transformer
-        # Las coordenadas ya están en EPSG:3116 pero EVA usa códigos DANE
-        # Necesitamos un boundary. Sin shapefile de municipios, usamos
-        # un approach diferente: para cada píxel con monitoreo=False,
-        # asignar los cultivos dominantes a nivel departamental por semestre.
-
-        # Filtrar EVA para este semestre
-        eva_sem = eva_df[eva_df['semestre'] == sem_label]
-
-        if not eva_sem.empty:
-            # Top cultivos del departamento en este semestre
-            top_cultivos = (eva_sem.groupby('cultivo')['area_cosechada']
-                          .sum().sort_values(ascending=False).head(10))
-
-            if len(top_cultivos) > 0:
-                # Para píxeles sin etiqueta, asignar cultivo basado en
-                # distribución departamental ponderada por piso térmico
-                pisos = df_pixeles['piso_termico'].values
-
-                # Construir tabla de cultivos por piso térmico desde EVA
-                # (usando rendimiento como proxy de adaptabilidad)
-                for idx_row in range(n):
-                    if confianza[idx_row] >= 0.7:
-                        continue  # Ya tiene etiqueta mejor
-
-                    # Seleccionar cultivos adecuados para el piso térmico
-                    piso_val = pisos[idx_row]
-                    # Mapeo simplificado de pisos a cultivos
-                    if piso_val == 0:  # Cálido
-                        cult_piso = ['Arroz', 'Maiz', 'Cacao', 'Palma',
-                                     'Cana Panelera', 'Yuca']
-                    elif piso_val == 1:  # Templado
-                        cult_piso = ['Cafe', 'Maiz', 'Cana Panelera',
-                                     'Frijol', 'Aguacate', 'Platano']
-                    elif piso_val == 2:  # Frío
-                        cult_piso = ['Papa', 'Arveja', 'Cebolla', 'Fresa',
-                                     'Maiz', 'Zanahoria', 'Frijol']
-                    else:  # Páramo
-                        cult_piso = ['Papa', 'Cebolla', 'Arveja']
-
-                    # Buscar en EVA del semestre
-                    candidatos = eva_sem[
-                        eva_sem['cultivo'].str.lower().isin(
-                            [c.lower() for c in cult_piso]
-                        )
-                    ]
-                    if candidatos.empty:
-                        candidatos = eva_sem.head(3)
-
-                    if not candidatos.empty:
-                        # Seleccionar top por area cosechada
-                        top = candidatos.sort_values('area_cosechada',
-                                                     ascending=False).iloc[0]
-                        cultivo[idx_row] = top['cultivo']
-                        confianza[idx_row] = 0.7 * top.get('score_aptitud', 0.5)
-                        fuente[idx_row] = 'eva'
-                        rend = top.get('rendimiento', np.nan)
-                        if pd.notna(rend):
-                            rendimiento[idx_row] = float(rend)
-
-    # --- Prioridad 1: Monitoreo UPRA (sobreescribe todo) ---
+    # ───────── L1: Monitoreo UPRA (one-hot, conf=1.0) ─────────
     if sem_label in monitoreo_por_semestre:
-        for cult_nombre, masc in monitoreo_por_semestre[sem_label]:
+        for cult_raw, masc in monitoreo_por_semestre[sem_label]:
+            cult_norm = _normalizar_cultivo(cult_raw)
+            k = cultivo_a_id.get(cult_norm, id_otros)
             hits = masc[rows, cols]
-            for i in np.where(hits)[0]:
-                cultivo[i] = cult_nombre
-                confianza[i] = 1.0
-                fuente[i] = 'monitoreo'
-                # Buscar rendimiento en EVA para este cultivo
-                if not eva_df.empty:
-                    match = eva_df[
-                        (eva_df['semestre'] == sem_label) &
-                        (eva_df['cultivo'].str.lower() == cult_nombre.lower())
-                    ]
-                    if not match.empty:
-                        rend_val = match['rendimiento'].median()
-                        if pd.notna(rend_val):
-                            rendimiento[i] = float(rend_val)
+            idx_hits = np.where(hits & (confianza < 1.0))[0]
+            if len(idx_hits) == 0:
+                continue
 
-    return pd.DataFrame({
+            prob_matrix[idx_hits, :] = 0.0
+            prob_matrix[idx_hits, k] = 1.0
+            cultivo[idx_hits] = cult_norm
+            confianza[idx_hits] = 1.0
+            fuente[idx_hits] = 'monitoreo'
+
+            # Rendimiento desde EVA agregado
+            if eva_agg is not None and not eva_agg.empty:
+                m = eva_agg[(eva_agg['semestre'] == sem_label) &
+                            (eva_agg['cultivo_norm'] == cult_norm)]
+                if not m.empty:
+                    rend_val = m['rendimiento'].median()
+                    if pd.notna(rend_val):
+                        rendimiento[idx_hits] = float(rend_val)
+
+    # ───────── L2: EVA municipal (DISTRIBUCIÓN completa, conf=0.7) ─────────
+    # Cambio vs diseño hard-label: ya NO asignamos solo el cultivo dominante.
+    # Asignamos la distribución completa según proporciones EVA del municipio.
+    if mun_raster is not None and eva_dist_dict:
+        idx_libres = np.where(confianza == 0)[0]
+        if len(idx_libres) > 0:
+            cod_pix = mun_raster[rows[idx_libres], cols[idx_libres]]
+            mun_unicos, inv = np.unique(cod_pix, return_inverse=True)
+
+            for i_mun, cod in enumerate(mun_unicos):
+                if cod == 0:
+                    continue  # fuera de Cundinamarca
+                cod_str = str(int(cod)).zfill(5)
+                dist = eva_dist_dict.get((cod_str, sem_label))
+                if dist is None:
+                    continue  # sin datos EVA para este mun-sem
+
+                # Construir vector de probabilidad (14 clases) desde dist
+                prob_vec = np.zeros(K, dtype=np.float32)
+                for c_norm, score in dist.items():
+                    k = cultivo_a_id.get(c_norm, id_otros)
+                    prob_vec[k] += float(score)
+
+                s = prob_vec.sum()
+                if s <= 0:
+                    continue
+                prob_vec /= s  # normalizar a suma=1
+
+                idx_en_mun = idx_libres[inv == i_mun]
+                prob_matrix[idx_en_mun] = prob_vec
+
+                # Hard-label derivado: argmax (para compat backward)
+                k_max = int(np.argmax(prob_vec))
+                cultivo[idx_en_mun] = MODEL_CLASSES[k_max]
+                # Meta-confianza fija por fuente (la distribución captura
+                # la concentración dentro del municipio)
+                confianza[idx_en_mun] = 0.70
+                fuente[idx_en_mun] = 'eva_municipal'
+
+                # Rendimiento del cultivo dominante (para compat)
+                top = eva_top_dict.get((cod_str, sem_label)) if eva_top_dict else None
+                if top and top.get('rendimiento') is not None:
+                    rendimiento[idx_en_mun] = top['rendimiento']
+
+    # ───────── L3: No_apto (one-hot, conf=0.4) ─────────
+    k_noapto = cultivo_a_id['No_apto']
+    idx_libres = np.where(confianza == 0)[0]
+    if len(idx_libres) > 0:
+        es_noapto = np.zeros(len(idx_libres), dtype=bool)
+
+        if sipra_noapta is not None:
+            voto = sipra_noapta[rows[idx_libres], cols[idx_libres]]
+            es_noapto |= (voto >= 3)
+
+        if ndvi_max_global is not None:
+            ndvi_pix = ndvi_max_global[rows[idx_libres], cols[idx_libres]]
+            es_noapto |= (ndvi_pix < 0.15) & ~np.isnan(ndvi_pix)
+
+        idx_noapto = idx_libres[es_noapto]
+        if len(idx_noapto) > 0:
+            prob_matrix[idx_noapto, :] = 0.0
+            prob_matrix[idx_noapto, k_noapto] = 1.0
+            cultivo[idx_noapto] = 'No_apto'
+            confianza[idx_noapto] = 0.40
+            fuente[idx_noapto] = 'noapto_proxy'
+
+    # Construir DataFrame final: meta + hard-label + soft-label
+    df_out = pd.DataFrame({
+        'cod_mun': cod_mun_arr,
         'cultivo': cultivo,
         'confianza': confianza,
         'fuente': fuente,
         'rendimiento_tha': rendimiento,
     })
+    # Añadir 14 columnas prob_<cultivo>
+    for k, c in enumerate(MODEL_CLASSES):
+        df_out[f'prob_{c}'] = prob_matrix[:, k]
+
+    return df_out
 
 
 # ==================================================================
@@ -952,14 +1089,21 @@ def construir_vista_minable(max_pixeles=MAX_PIXELES_DEFAULT):
     # Paso 1: Máscara
     mascara, profile = crear_mascara_valida()
 
-    # Paso 2: Monitoreo
+    # Paso 2: Monitoreo UPRA (L1 - confianza=1.0)
     monitoreo = rasterizar_monitoreo(profile)
 
-    # Paso 3: SIPRA
-    sipra = rasterizar_sipra(profile)
+    # Paso 3: EVA agregado por clase canónica (L2 - alimenta etiqueta municipal)
+    # eva_dist_dict: distribución completa por (mun, sem) — soft labels LLP
+    eva_agg, eva_top_dict, eva_dist_dict = cargar_eva()
 
-    # Paso 4: EVA
-    eva_df = cargar_eva()
+    # Paso 3b: MGN-DANE (lookup cod_mun por píxel, requerido por L2)
+    mun_raster = rasterizar_municipios(profile)
+
+    # Paso 3c: SIPRA consolidado (L3 - proxy No_apto)
+    sipra_noapta = rasterizar_sipra_noapta(profile)
+
+    # Paso 3d: NDVI_max global (L3 - proxy No_apto)
+    ndvi_max_global = cargar_ndvi_max_ultimo_anio()
 
     # Paso 5: Muestreo
     df_pixeles = muestrear_pixeles(mascara, profile, monitoreo, max_pixeles)
@@ -980,9 +1124,11 @@ def construir_vista_minable(max_pixeles=MAX_PIXELES_DEFAULT):
         # Extraer features
         df_feat, capas_cache = extraer_features(df_pixeles, sem_label, capas_cache)
 
-        # Asignar target
-        df_target = asignar_target(df_pixeles, sem_label, monitoreo, sipra,
-                                   eva_df, profile)
+        # Asignar target (3 niveles: monitoreo -> EVA municipal -> No_apto)
+        df_target = asignar_target(
+            df_pixeles, sem_label, monitoreo, eva_agg, eva_top_dict,
+            eva_dist_dict, mun_raster, sipra_noapta, ndvi_max_global, profile,
+        )
 
         # Combinar (piso_termico ya viene en df_feat como feature estática)
         df_sem = pd.concat([
@@ -1001,10 +1147,8 @@ def construir_vista_minable(max_pixeles=MAX_PIXELES_DEFAULT):
         if len(df_sem) > 0:
             all_dfs.append(df_sem)
             n_mon = (df_sem['fuente'] == 'monitoreo').sum()
-            n_eva = (df_sem['fuente'] == 'eva').sum()
-            n_sipra = (df_sem['fuente'] == 'sipra').sum()
-            print(f"  {sem_label}: {len(df_sem):,} filas "
-                  f"(monitoreo={n_mon:,}, eva={n_eva:,}, sipra={n_sipra:,})")
+            print(f"  {sem_label}: {len(df_sem):,} filas etiquetadas "
+                  f"(monitoreo={n_mon:,})")
 
     if not all_dfs:
         print("\n  Sin datos para generar la vista minable.")
@@ -1017,24 +1161,31 @@ def construir_vista_minable(max_pixeles=MAX_PIXELES_DEFAULT):
 
     vista = pd.concat(all_dfs, ignore_index=True)
 
-    # Label encode cultivos
-    cultivos_unicos = sorted(vista['cultivo'].unique())
-    cultivo_a_id = {c: i for i, c in enumerate(cultivos_unicos)}
+    # Label encode cultivos usando MODEL_CLASSES (orden estable e independiente
+    # de qué clases aparezcan en la muestra). Garantiza el mismo ID entre runs.
+    cultivo_a_id = {c: i for i, c in enumerate(MODEL_CLASSES)}
+    # Cualquier valor fuera del catálogo canónico cae a 'Otros_cultivos'
+    # (no debería suceder porque asignar_target ya normaliza, pero es defensa).
+    vista['cultivo'] = vista['cultivo'].where(
+        vista['cultivo'].isin(MODEL_CLASSES), 'Otros_cultivos'
+    )
     vista['cultivo_id'] = vista['cultivo'].map(cultivo_a_id).astype(np.int16)
 
     # Eliminar columnas duplicadas (seguridad)
     vista = vista.loc[:, ~vista.columns.duplicated()]
 
-    # Reordenar columnas: metadata → features → target
-    meta_cols = ['pixel_id', 'x', 'y', 'semestre']
+    # Reordenar columnas: metadata → features → target (hard) → prob (soft)
+    meta_cols = ['pixel_id', 'x', 'y', 'semestre', 'cod_mun']
     target_cols = ['cultivo', 'cultivo_id', 'confianza', 'fuente', 'rendimiento_tha']
-    feature_cols = [c for c in vista.columns if c not in meta_cols + target_cols]
+    prob_cols = [f'prob_{c}' for c in MODEL_CLASSES if f'prob_{c}' in vista.columns]
+    feature_cols = [c for c in vista.columns
+                    if c not in meta_cols + target_cols + prob_cols]
 
-    vista = vista[meta_cols + feature_cols + target_cols]
+    vista = vista[meta_cols + feature_cols + target_cols + prob_cols]
 
     # Estadísticas
     print(f"\n  Dimensiones: {vista.shape[0]:,} filas × {vista.shape[1]} columnas")
-    print(f"  Cultivos únicos: {len(cultivos_unicos)}")
+    print(f"  Clases en muestra: {vista['cultivo'].nunique()} de {len(MODEL_CLASSES)} posibles")
     print(f"  Semestres: {vista['semestre'].nunique()}")
 
     # NaN report
@@ -1050,10 +1201,30 @@ def construir_vista_minable(max_pixeles=MAX_PIXELES_DEFAULT):
     for f, c in vista['fuente'].value_counts().items():
         print(f"    {f}: {c:,} ({100 * c / len(vista):.1f}%)")
 
-    # Top 10 cultivos
-    print(f"\n  Top 10 cultivos:")
+    # Top 10 cultivos (hard-label, argmax)
+    print(f"\n  Top 10 cultivos (hard-label):")
     for cult, c in vista['cultivo'].value_counts().head(10).items():
         print(f"    {cult}: {c:,}")
+
+    # Masa de probabilidad total por clase (soft-label)
+    # Suma de prob_<c> sobre todas las filas; refleja "área esperada" por clase.
+    if prob_cols:
+        print(f"\n  Masa soft-label por clase (suma de prob_<clase>):")
+        soft_mass = vista[prob_cols].sum().sort_values(ascending=False)
+        for col, mass in soft_mass.head(10).items():
+            pct = 100 * mass / soft_mass.sum()
+            print(f"    {col}: {mass:,.1f} ({pct:.1f}%)")
+        # Entropía media por fuente — diagnóstico de ruido en etiquetas
+        p_mat = vista[prob_cols].values.astype(np.float32)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            p_clip = np.clip(p_mat, 1e-9, 1.0)
+            entropia = -np.sum(p_mat * np.log(p_clip), axis=1)
+        print(f"\n  Entropía media de distribución por fuente:")
+        for f in vista['fuente'].unique():
+            mask_f = (vista['fuente'] == f).values
+            if mask_f.any():
+                print(f"    {f:<15} H_mean={entropia[mask_f].mean():.3f} "
+                      f"(0 = one-hot, {np.log(len(prob_cols)):.3f} = uniforme)")
 
     # Guardar catálogo de cultivos
     catalogo_path = os.path.join(OUT_DIR, 'catalogo_cultivos.json')
@@ -1101,10 +1272,14 @@ def main():
     elif args.step == 'preparar':
         mascara, profile = crear_mascara_valida()
         monitoreo = rasterizar_monitoreo(profile)
-        sipra = rasterizar_sipra(profile)
-        print(f"\n  Preparación completada. "
-              f"{len(monitoreo)} semestres con monitoreo, "
-              f"{len(sipra)} cultivos SIPRA.")
+        mun_raster = rasterizar_municipios(profile)
+        sipra_noapta = rasterizar_sipra_noapta(profile)
+        ndvi_max_g = cargar_ndvi_max_ultimo_anio()
+        print(f"\n  Preparación completada:")
+        print(f"    Semestres con monitoreo: {len(monitoreo)}")
+        print(f"    MGN disponible: {mun_raster is not None}")
+        print(f"    SIPRA No-apta disponible: {sipra_noapta is not None}")
+        print(f"    NDVI_max disponible: {ndvi_max_g is not None}")
     elif args.step == 'muestrear':
         mascara, profile = crear_mascara_valida()
         monitoreo = rasterizar_monitoreo(profile)
