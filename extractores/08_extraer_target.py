@@ -286,7 +286,7 @@ def _guardar_checkpoint(part_path, features, next_offset):
 
 
 def descargar_monitoreo():
-    """Descarga polígonos de monitoreo de cultivos (papa, maíz, arroz, etc.)."""
+    """Descarga polígonos de monitoreo UPRA: Papa en Cundinamarca (única cobertura)."""
     out_dir = DIRS['target_monitoreo']
 
     print("\n  Descargando polígonos de monitoreo de cultivos UPRA...")

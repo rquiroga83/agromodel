@@ -44,21 +44,26 @@ DEPT_NAME     = 'CUNDINAMARCA'
 # VENTANA TEMPORAL
 # ──────────────────────────────────────────────────────────────
 YEAR_START = 2020
-YEAR_END   = 2025
+YEAR_END   = 2024  # ultimo anio con cobertura UPRA (papa_2024_s1 es la mas reciente)
+# UPRA aun no publica papa_2024_s2 ni papa_2025_*. La vista minable se corta en 2024A
+# para que el modelo se entrene sobre semestres con etiquetas L1 disponibles.
+INCLUDE_LAST_YEAR_S2 = False  # cambia a True cuando UPRA publique papa_2024_s2
 DATE_START = f'{YEAR_START}-01-01'
-DATE_END   = f'{YEAR_END}-12-31'
+DATE_END   = f'{YEAR_END}-12-31' if INCLUDE_LAST_YEAR_S2 else f'{YEAR_END}-06-30'
 
-# Semestres agrícolas de Colombia
+# Semestres agrícolas de Colombia (filtrados por INCLUDE_LAST_YEAR_S2)
 SEMESTRES = []
 for year in range(YEAR_START, YEAR_END + 1):
     SEMESTRES.append({'label': f'{year}A', 'start': f'{year}-01-01', 'end': f'{year}-06-30'})
-    SEMESTRES.append({'label': f'{year}B', 'start': f'{year}-07-01', 'end': f'{year}-12-31'})
+    if year < YEAR_END or INCLUDE_LAST_YEAR_S2:
+        SEMESTRES.append({'label': f'{year}B', 'start': f'{year}-07-01', 'end': f'{year}-12-31'})
 
-# Meses del período de análisis
+# Meses del período de análisis (truncado al ultimo semestre incluido)
 import calendar
 MESES = []
 for year in range(YEAR_START, YEAR_END + 1):
-    for mes in range(1, 13):
+    ultimo_mes_anio = 12 if (year < YEAR_END or INCLUDE_LAST_YEAR_S2) else 6
+    for mes in range(1, ultimo_mes_anio + 1):
         ultimo_dia = calendar.monthrange(year, mes)[1]
         MESES.append({
             'label': f'{year}_{mes:02d}',
@@ -217,7 +222,17 @@ SODA_DATASETS = {
 UPRA_BASE = 'https://geoservicios.upra.gov.co/arcgis/rest/services'
 
 UPRA_MONITOREO = {
-    # Papa (2021-2024)
+    # Cobertura UPRA en Cundinamarca (verificado 2026-04 contra REST):
+    #   - Papa: SI, 2021-2024 semestrales (miles de poligonos por semestre)
+    #   - Maiz: NO. UPRA monitorea maiz solo en Meta, Tolima, Cordoba, Cesar,
+    #     Huila (zonas industriales). Las 17k ha de maiz cundinamarques vienen
+    #     de EVA estadistica, no de monitoreo satelital.
+    #   - Cacao: removido. Las capas departamentales Cacao_2020-2023 estan
+    #     vacias para depto=25; la capa nacional `cacao_nal_2023` cubre solo
+    #     un anio y mezcla geometrias agregadas. Cacao se etiqueta solo via L2 EVA.
+    #   - Arroz: removido (cultivo de tierra caliente, no relevante).
+    #
+    # Papa (2021-2024) — semestres nombrados _s1/_s2
     'papa_2021_s1':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2021_s1/MapServer/0',
     'papa_2021_s2':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2021_s2/MapServer/0',
     'papa_2022_s1':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2022_s1/MapServer/0',
@@ -225,26 +240,6 @@ UPRA_MONITOREO = {
     'papa_2023_s1':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2023_s1/MapServer/0',
     'papa_2023_s2':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2023_s2/MapServer/0',
     'papa_2024_s1':  f'{UPRA_BASE}/MonitoreoCultivos/papa_2024_s1/MapServer/0',
-    # Maíz (2021-2023, semestres nombrados _1/_2)
-    'maiz_2021_1':   f'{UPRA_BASE}/MonitoreoCultivos/maiz_2021_1/MapServer/0',
-    'maiz_2021_2':   f'{UPRA_BASE}/MonitoreoCultivos/maiz_2021_2/MapServer/0',
-    'maiz_2022_1':   f'{UPRA_BASE}/MonitoreoCultivos/maiz_2022_1/MapServer/0',
-    'maiz_2022_2':   f'{UPRA_BASE}/MonitoreoCultivos/maiz_2022_2/MapServer/0',
-    'maiz_2023_1':   f'{UPRA_BASE}/MonitoreoCultivos/maiz_2023_1/MapServer/0',
-    'maiz_2023_2':   f'{UPRA_BASE}/MonitoreoCultivos/maiz_2023_2/MapServer/0',
-    # Arroz (2021-2024)
-    'arroz_2021_s1': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2021_s1/MapServer/0',
-    'arroz_2021_s2': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2021_s2/MapServer/0',
-    'arroz_2022_s1': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2022_s1/MapServer/0',
-    'arroz_2022_s2': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2022_s2/MapServer/0',
-    'arroz_2023_s1': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2023_s1/MapServer/0',
-    'arroz_2023_s2': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2023_s2/MapServer/0',
-    'arroz_2024_s1': f'{UPRA_BASE}/MonitoreoCultivos/arroz_2024_s1/MapServer/0',
-    # Cacao (2020-2023)
-    'cacao_2020':    f'{UPRA_BASE}/MonitoreoCultivos/Cacao_2020/MapServer/0',
-    'cacao_2021':    f'{UPRA_BASE}/MonitoreoCultivos/Cacao_2021/MapServer/0',
-    'cacao_2022':    f'{UPRA_BASE}/MonitoreoCultivos/Cacao_2022/MapServer/0',
-    'cacao_2023':    f'{UPRA_BASE}/MonitoreoCultivos/Cacao_2023/MapServer/0',
 }
 
 UPRA_APTITUD = {
@@ -282,13 +277,16 @@ UPRA_APTITUD = {
     'aguacate_hass':    f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_aguacate_hass_Dic2019/MapServer/0',
 }
 
-# Cultivos EVA canónicos (TOP-12 área cosechada 2019-2024 en Cundinamarca)
-# Cubren ~80% del área. Orden: area cosechada descendente.
+# Cultivos EVA canonicos por area cosechada en Cundinamarca.
+# Orden: area cosechada descendente (sin Papa).
+# Top-12 originales (~77% area no-Papa) + 5 adicionales (~8% mas) = ~85% cobertura.
+# Nuevos: Mora, Zanahoria, Tomate_Arbol, Yuca, Habichuela (todos >47K ha acumuladas).
 EVA_TOP_CULTIVOS = [
     'Papa', 'Cana_Panelera', 'Cafe', 'Maiz', 'Platano', 'Mango',
     'Frijol', 'Cacao', 'Arveja', 'Palma', 'Banano', 'Naranja',
+    'Mora', 'Zanahoria', 'Tomate_Arbol', 'Yuca', 'Habichuela',
 ]
-# Conjunto completo de clases del modelo (14 clases)
+# Conjunto completo de clases del modelo (19 clases)
 MODEL_CLASSES = EVA_TOP_CULTIVOS + ['Otros_cultivos', 'No_apto']
 
 # ──────────────────────────────────────────────────────────────

@@ -107,28 +107,36 @@ def _get_transform_shape():
 # ==================================================================
 
 def _sin_acentos(s):
-    """Remueve acentos simples y normaliza N con tilde."""
-    return (s.replace('Á', 'A').replace('É', 'E').replace('Í', 'I')
-              .replace('Ó', 'O').replace('Ú', 'U').replace('Ñ', 'N')
-              .replace('á', 'a').replace('é', 'e').replace('í', 'i')
-              .replace('ó', 'o').replace('ú', 'u').replace('ñ', 'n'))
+    """Remueve acentos y normaliza usando unicodedata (robusto a cualquier encoding)."""
+    import unicodedata
+    s = unicodedata.normalize('NFD', str(s))
+    return ''.join(c for c in s if unicodedata.category(c) != 'Mn')
 
 
-# Reglas de mapeo EVA/monitoreo -> 14 clases del modelo.
-# Se evalúan en orden; el primer prefijo que matchee gana.
+# Reglas de mapeo EVA/monitoreo -> clases del modelo.
+# Se evaluan en orden; el primer prefijo que matchee gana.
+# IMPORTANTE: prefijos mas especificos antes que los generales
+# (ej. 'tomate de arbol' antes que 'tomate').
 _REGLAS_NORMALIZACION = [
-    ('papa',     'Papa'),
-    ('cana',     'Cana_Panelera'),     # caña panelera, caña azucarera, caña miel
-    ('cafe',     'Cafe'),
-    ('maiz',     'Maiz'),
-    ('platano',  'Platano'),
-    ('mango',    'Mango'),
-    ('frijol',   'Frijol'),
-    ('cacao',    'Cacao'),
-    ('arveja',   'Arveja'),
-    ('palma',    'Palma'),              # palma africana, palma aceitera
-    ('banano',   'Banano'),
-    ('naranja',  'Naranja'),
+    ('papa',           'Papa'),
+    ('cana',           'Cana_Panelera'),  # cana panelera, cana azucarera, cana miel, cana
+    ('cafe',           'Cafe'),
+    ('maiz',           'Maiz'),
+    ('platano',        'Platano'),
+    ('mango',          'Mango'),
+    ('frijol',         'Frijol'),
+    ('cacao',          'Cacao'),
+    ('arveja',         'Arveja'),
+    ('palma',          'Palma'),          # palma africana, palma aceitera
+    ('banano',         'Banano'),
+    ('naranja',        'Naranja'),
+    ('mora',           'Mora'),
+    ('zanahoria',      'Zanahoria'),
+    ('tomate de arbol','Tomate_Arbol'),   # antes que 'tomate' generico
+    ('tomate arbol',   'Tomate_Arbol'),   # variante sin 'de'
+    ('tomate de a',    'Tomate_Arbol'),   # variante abreviada
+    ('yuca',           'Yuca'),
+    ('habichuela',     'Habichuela'),
 ]
 
 
@@ -327,7 +335,7 @@ def cargar_eva():
     # EVA UPRA 2019-2024
     upra_path = os.path.join(eva_dir, 'eva_upra_2019_2024_cundinamarca.csv')
     if os.path.exists(upra_path):
-        df = pd.read_csv(upra_path, dtype=str)
+        df = pd.read_csv(upra_path, dtype=str, encoding='utf-8')
         df_clean = pd.DataFrame({
             'cod_mun': df['c_digo_dane_municipio'].str.strip().str.zfill(5),
             'year': pd.to_numeric(df['a_o'], errors='coerce'),
@@ -343,7 +351,7 @@ def cargar_eva():
     # EVA Histórica 2007-2018
     hist_path = os.path.join(eva_dir, 'eva_historica_2007_2018_cundinamarca.csv')
     if os.path.exists(hist_path):
-        df = pd.read_csv(hist_path, dtype=str)
+        df = pd.read_csv(hist_path, dtype=str, encoding='utf-8')
         df_clean = pd.DataFrame({
             'cod_mun': df['c_d_mun'].str.strip().str.zfill(5),
             'year': pd.to_numeric(df['a_o'], errors='coerce'),
@@ -398,13 +406,19 @@ def cargar_eva():
             'rendimiento': (float(r['rendimiento']) if pd.notna(r['rendimiento']) else None),
         }
 
-    # Distribución COMPLETA por (cod_mun, semestre) — para etiquetado soft (LLP).
-    # Cada entrada: {cultivo_norm: score_aptitud, ...} con TODOS los cultivos
-    # reportados por EVA en ese municipio-semestre (score suma ~1.0).
+    # Distribución L2 por (cod_mun, semestre) — para etiquetado soft (LLP).
+    # Se EXCLUYEN Papa y No_apto: Papa la modela L1 (monitoreo UPRA pixel-level,
+    # confianza=1.0) y No_apto la modela L3 (proxy SIPRA+NDVI).
+    # Incluir Papa en la distribución L2 contamina las proporciones porque las
+    # hectareas EVA de Papa son las mismas que L1 ya etiqueto con mayor precision.
+    # La renormalizacion ocurre en asignar_target (prob_vec /= s), asi que basta
+    # con omitir estas clases aqui y las proporciones quedaran correctamente
+    # distribuidas entre los cultivos no-Papa no-No_apto.
+    L2_EXCLUIR = {'Papa', 'No_apto'}
     eva_dist_dict = {}
     for (cod, sem), grp in eva_agg.groupby(['cod_mun', 'semestre']):
         dist = {r['cultivo_norm']: float(r['score_aptitud']) for _, r in grp.iterrows()
-                if r['score_aptitud'] > 0}
+                if r['score_aptitud'] > 0 and r['cultivo_norm'] not in L2_EXCLUIR}
         if dist:
             eva_dist_dict[(cod, sem)] = dist
 
