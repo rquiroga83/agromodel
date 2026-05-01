@@ -5,9 +5,10 @@ Construye la tabla rectangular (vista minable) que alimenta los modelos ML.
 
 Cada fila = un (pixel, semestre).  Cada columna = un feature o target.
 
-Clasificación multiclase (14 clases, alineada con EVA top-12 Cundinamarca):
+Clasificacion multiclase (20 clases, alineada con EVA Cundinamarca 2019-2024):
     Papa, Cana_Panelera, Cafe, Maiz, Platano, Mango, Frijol, Cacao,
-    Arveja, Palma, Banano, Naranja, Otros_cultivos, No_apto
+    Arveja, Palma, Banano, Citricos, Mora, Zanahoria, Tomate_Arbol,
+    Yuca, Habichuela, Hortalizas, Otros_cultivos, No_apto
 
 Etiquetado jerárquico de 3 niveles (con `sample_weight = confianza`):
     L1 Monitoreo UPRA      → hard label,  confianza=1.0
@@ -113,13 +114,14 @@ def _sin_acentos(s):
     return ''.join(c for c in s if unicodedata.category(c) != 'Mn')
 
 
-# Reglas de mapeo EVA/monitoreo -> clases del modelo.
+# Reglas de mapeo EVA/monitoreo -> clase canonica del modelo.
 # Se evaluan en orden; el primer prefijo que matchee gana.
 # IMPORTANTE: prefijos mas especificos antes que los generales
-# (ej. 'tomate de arbol' antes que 'tomate').
+# (ej. 'tomate de arbol' antes que 'tomate' generico).
+# La entrada ya viene en minusculas y sin acentos (ver _normalizar_cultivo).
 _REGLAS_NORMALIZACION = [
     ('papa',           'Papa'),
-    ('cana',           'Cana_Panelera'),  # cana panelera, cana azucarera, cana miel, cana
+    ('cana',           'Cana_Panelera'),  # cana panelera, cana azucarera, cana miel
     ('cafe',           'Cafe'),
     ('maiz',           'Maiz'),
     ('platano',        'Platano'),
@@ -129,21 +131,65 @@ _REGLAS_NORMALIZACION = [
     ('arveja',         'Arveja'),
     ('palma',          'Palma'),          # palma africana, palma aceitera
     ('banano',         'Banano'),
-    ('naranja',        'Naranja'),
+
+    # --- Grupo Citricos ---
+    # Agrupa Naranja, Mandarina, Limon, Tangelo y Otros citricos porque:
+    # (1) son indistinguibles espectralmente a 50m (dosel perenne similar),
+    # (2) comparten nicho climatico de piedemonte calido (800-1800 msnm),
+    # (3) en EVA aparecen reportados de forma inconsistente por municipio.
+    # EVA 2019-2024 Cundinamarca: ~62K ha en 53 municipios.
+    ('naranja',        'Citricos'),
+    ('mandarina',      'Citricos'),
+    ('limon',          'Citricos'),       # limon (sin tilde tras _sin_acentos)
+    ('tangelo',        'Citricos'),
+    ('otros citri',    'Citricos'),       # "Otros citricos" EVA
+
     ('mora',           'Mora'),
     ('zanahoria',      'Zanahoria'),
-    ('tomate de arbol','Tomate_Arbol'),   # antes que 'tomate' generico
+
+    # tomate de arbol ANTES de 'tomate' generico para evitar colision
+    ('tomate de arbol','Tomate_Arbol'),
     ('tomate arbol',   'Tomate_Arbol'),   # variante sin 'de'
-    ('tomate de a',    'Tomate_Arbol'),   # variante abreviada
+    ('tomate de a',    'Tomate_Arbol'),   # variante abreviada EVA
+
     ('yuca',           'Yuca'),
     ('habichuela',     'Habichuela'),
+
+    # --- Grupo Hortalizas ---
+    # Agrupa cultivos de ciclo corto intensivo de la Sabana de Bogota y
+    # valles interandinos (Mosquera, Cota, Cajica, Tocancipa, Fomeque, etc.)
+    # porque: (1) comparten firma espectral de dosel bajo con alta reflectancia
+    # en verde y NDVI moderado (0.3-0.6), (2) el ciclo corto (<4 meses) genera
+    # alta variabilidad temporal del NDVI diferenciadora del resto de cultivos,
+    # (3) muchos se producen bajo invernadero o polytunnel con patron SAR/optico
+    # caracteristico. EVA 2019-2024: ~72K ha en 90 municipios; domina en
+    # 10 municipios que antes caian en Otros_cultivos.
+    ('cebolla',        'Hortalizas'),     # cebolla de bulbo, cebolla de rama
+    ('lechuga',        'Hortalizas'),
+    ('tomate',         'Hortalizas'),     # tomate chonto/larga vida (tomate de arbol ya resuelto)
+    ('otras horta',    'Hortalizas'),     # "Otras hortalizas" EVA
+    ('cilantro',       'Hortalizas'),
+    ('ahuyama',        'Hortalizas'),
+    ('calabac',        'Hortalizas'),     # calabacin, calabaza
+    ('espinaca',       'Hortalizas'),
+    ('apio',           'Hortalizas'),
+    ('repollo',        'Hortalizas'),
+    ('pimenton',       'Hortalizas'),     # pimenton (sin tilde)
+    ('pepino',         'Hortalizas'),     # pepino cohombro, pepino guiso
+    ('remolacha',      'Hortalizas'),
+    ('brocoli',        'Hortalizas'),     # brocoli (sin tilde)
+    ('acelga',         'Hortalizas'),
+    ('ajo',            'Hortalizas'),
+    ('esparrago',      'Hortalizas'),     # esparrago (sin tilde)
+    ('rabano',         'Hortalizas'),     # rabano (sin tilde)
+    ('haba',           'Hortalizas'),     # haba (habichuela ya resuelta arriba)
 ]
 
 
 def _normalizar_cultivo(nombre_raw):
-    """Mapea nombre EVA/monitoreo -> clase canónica (14 clases MODEL_CLASSES).
+    """Mapea nombre EVA/monitoreo -> clase canonica del modelo (MODEL_CLASSES).
 
-    Cualquier cultivo fuera del top-12 cae en 'Otros_cultivos'.
+    Cualquier cultivo sin regla cae en 'Otros_cultivos'.
     """
     if nombre_raw is None or (isinstance(nombre_raw, float) and np.isnan(nombre_raw)):
         return 'Otros_cultivos'
@@ -608,6 +654,95 @@ def cargar_ndvi_max_ultimo_anio():
 
 
 # ==================================================================
+# PASO 3e: VARIABILIDAD TEMPORAL DEL NDVI (MASCARA AGRICOLA)
+# ==================================================================
+
+def calcular_sigma_ndvi_temporal(profile):
+    """
+    Calcula la variabilidad temporal del NDVI_max por pixel usando todos los
+    semestres disponibles en processed/temporal/satelite/sentinel2/.
+
+    Para cada pixel produce:
+      ndvi_sigma_temporal : std de s2_ndvi_max a lo largo del eje temporal
+      ndvi_mean_temporal  : media de s2_ndvi_max a lo largo del eje temporal
+
+    Interpretacion:
+      - sigma alto  + media moderada => ciclo de cultivo detectable (transitorio)
+      - sigma bajo  + media alta     => vegetacion densa y estable => bosque
+      - sigma bajo  + media baja     => suelo desnudo / urbano / agua (ya en L3)
+      - Cultivos perennes (Cafe, Cacao, Palma): sigma moderado, media 0.55-0.75
+
+    Los rasters se guardan en processed/engineered/ y se reutilizan si ya existen.
+    Requiere >= 2 semestres con datos para calcular sigma; retorna (None, None) si no.
+    """
+    s2_dir = os.path.join(TEMP_DIR, 'satelite', 'sentinel2')
+    sigma_path = os.path.join(ENG_DIR, 'ndvi_sigma_temporal.tif')
+    mean_path  = os.path.join(ENG_DIR, 'ndvi_mean_temporal.tif')
+
+    if os.path.exists(sigma_path) and os.path.exists(mean_path):
+        print("  ndvi_sigma_temporal y ndvi_mean_temporal ya existen, cargando.")
+        sigma_arr, _ = _leer_raster(sigma_path)
+        mean_arr,  _ = _leer_raster(mean_path)
+        return sigma_arr, mean_arr
+
+    print("\n" + "=" * 70)
+    print("PASO 3e: CALCULAR SIGMA NDVI TEMPORAL")
+    print("=" * 70)
+
+    # Leer un raster por semestre (s2_ndvi_max ya es el maximo dentro del semestre)
+    capas = []
+    for sem in SEMESTRES:
+        path = os.path.join(s2_dir, f's2_ndvi_max_{sem["label"]}.tif')
+        if os.path.exists(path):
+            arr, _ = _leer_raster(path)
+            capas.append(arr)
+
+    if len(capas) < 2:
+        print(f"  Solo {len(capas)} semestre(s) disponible(s). "
+              f"Se necesitan >= 2 para calcular sigma. Saltando.")
+        return None, None
+
+    print(f"  Semestres cargados: {len(capas)}")
+    stack = np.stack(capas, axis=0)          # (T, H, W)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        sigma_arr = np.nanstd(stack,  axis=0).astype(np.float32)
+        mean_arr  = np.nanmean(stack, axis=0).astype(np.float32)
+
+    # Pixeles donde todos los semestres son NaN -> resultado NaN
+    all_nan_mask = np.all(np.isnan(stack), axis=0)
+    sigma_arr[all_nan_mask] = np.nan
+    mean_arr[all_nan_mask]  = np.nan
+
+    print(f"  ndvi_sigma_temporal: "
+          f"p10={np.nanpercentile(sigma_arr, 10):.3f}  "
+          f"p50={np.nanpercentile(sigma_arr, 50):.3f}  "
+          f"p90={np.nanpercentile(sigma_arr, 90):.3f}")
+    print(f"  ndvi_mean_temporal:  "
+          f"p10={np.nanpercentile(mean_arr, 10):.3f}  "
+          f"p50={np.nanpercentile(mean_arr, 50):.3f}  "
+          f"p90={np.nanpercentile(mean_arr, 90):.3f}")
+
+    # Guardar como GeoTIFF en engineered/ para reutilizacion y extraccion en parquet
+    import rasterio
+    out_profile = profile.copy()
+    out_profile.update(dtype='float32', count=1, nodata=NODATA, compress='lzw')
+
+    for arr, path, nombre in [
+        (sigma_arr, sigma_path, 'ndvi_sigma_temporal'),
+        (mean_arr,  mean_path,  'ndvi_mean_temporal'),
+    ]:
+        data = arr.copy()
+        data[np.isnan(data)] = NODATA
+        with rasterio.open(path, 'w', **out_profile) as dst:
+            dst.write(data, 1)
+        print(f"  Guardado: {os.path.relpath(path)}")
+
+    return sigma_arr, mean_arr
+
+
+# ==================================================================
 # PASO 5: MUESTREO ESTRATIFICADO
 # ==================================================================
 
@@ -820,6 +955,18 @@ def _definir_capas_estaticas():
 
     # Features derivadas estáticas (incluye aspecto descompuesto sin/cos)
     for nombre in ['piso_termico', 'indice_fertilidad', 'aspecto_sin', 'aspecto_cos']:
+        path = os.path.join(ENG_DIR, f'{nombre}.tif')
+        if os.path.exists(path):
+            capas[nombre] = (path, 1)
+
+    # Variabilidad temporal del NDVI (mascara agricola).
+    # ndvi_sigma_temporal: std de NDVI_max entre semestres por pixel.
+    #   - Alta => ciclo de cultivo detectable (transitorios).
+    #   - Baja  => vegetacion estable (bosque) o suelo desnudo.
+    # ndvi_mean_temporal: media del NDVI_max entre semestres por pixel.
+    #   - Combinado con sigma: bosque = mean alto + sigma bajo.
+    # Generados por calcular_sigma_ndvi_temporal() en PASO 3e.
+    for nombre in ['ndvi_sigma_temporal', 'ndvi_mean_temporal']:
         path = os.path.join(ENG_DIR, f'{nombre}.tif')
         if os.path.exists(path):
             capas[nombre] = (path, 1)
@@ -1118,6 +1265,13 @@ def construir_vista_minable(max_pixeles=MAX_PIXELES_DEFAULT):
 
     # Paso 3d: NDVI_max global (L3 - proxy No_apto)
     ndvi_max_global = cargar_ndvi_max_ultimo_anio()
+
+    # Paso 3e: Sigma NDVI temporal (mascara agricola -> columnas del parquet)
+    # Genera ndvi_sigma_temporal.tif y ndvi_mean_temporal.tif en engineered/.
+    # Si ya existen, los carga; si no hay >= 2 semestres, retorna (None, None).
+    # Las columnas llegan al parquet via _definir_capas_estaticas() de forma
+    # automatica; no se necesita pasarlas explicitamente a extraer_features().
+    calcular_sigma_ndvi_temporal(profile)
 
     # Paso 5: Muestreo
     df_pixeles = muestrear_pixeles(mascara, profile, monitoreo, max_pixeles)

@@ -277,16 +277,20 @@ UPRA_APTITUD = {
     'aguacate_hass':    f'{UPRA_BASE}/aptitud_uso_suelo/aptitud_aguacate_hass_Dic2019/MapServer/0',
 }
 
-# Cultivos EVA canonicos por area cosechada en Cundinamarca.
-# Orden: area cosechada descendente (sin Papa).
-# Top-12 originales (~77% area no-Papa) + 5 adicionales (~8% mas) = ~85% cobertura.
-# Nuevos: Mora, Zanahoria, Tomate_Arbol, Yuca, Habichuela (todos >47K ha acumuladas).
+# Cultivos EVA canonicos por area cosechada en Cundinamarca 2019-2024.
+# 'Naranja' reemplazada por 'Citricos' (agrupa Naranja + Mandarina + Limon +
+#   Tangelo + Otros citricos; ~62K ha, 53 municipios). Indistinguibles a 50m
+#   y comparten nicho de piedemonte calido (800-1800 msnm).
+# 'Hortalizas' agregada: cultivos de ciclo corto intensivo de la Sabana de
+#   Bogota y valles interandinos (~72K ha, 90 municipios, domina 10 municipios
+#   que antes caian en Otros_cultivos: Mosquera, Cota, Cajica, etc.).
 EVA_TOP_CULTIVOS = [
     'Papa', 'Cana_Panelera', 'Cafe', 'Maiz', 'Platano', 'Mango',
-    'Frijol', 'Cacao', 'Arveja', 'Palma', 'Banano', 'Naranja',
+    'Frijol', 'Cacao', 'Arveja', 'Palma', 'Banano', 'Citricos',
     'Mora', 'Zanahoria', 'Tomate_Arbol', 'Yuca', 'Habichuela',
+    'Hortalizas',
 ]
-# Conjunto completo de clases del modelo (19 clases)
+# Conjunto completo de clases del modelo (20 clases)
 MODEL_CLASSES = EVA_TOP_CULTIVOS + ['Otros_cultivos', 'No_apto']
 
 # ──────────────────────────────────────────────────────────────
