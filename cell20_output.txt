@@ -1,0 +1,68 @@
+
+Pares con |r| > 0.85: 19
+Variable A                   Variable B                         r
+-----------------------------------------------------------------
+  s2_ndvi_std                s2_msavi_std                +1.000
+  s2_ndvi_media              s2_msavi_media              +1.000
+  s2_gndvi_media             s2_msavi_media              +1.000
+  s2_ndvi_media              s2_gndvi_media              +1.000
+  s2_ndvi_std                s2_gndvi_std                +1.000
+  s2_gndvi_std               s2_msavi_std                +1.000
+  s2_gndvi_media             s2_bsi_media                +1.000
+  s2_msavi_media             s2_bsi_media                +1.000
+  s2_ndvi_media              s2_bsi_media                +1.000
+  s2_ndvi_std                s2_bsi_std                  +1.000
+  s2_msavi_std               s2_bsi_std                  +1.000
+  s2_gndvi_std               s2_bsi_std                  +1.000
+  s2_ndvi_media              ndvi_integral               +0.971
+  s2_msavi_media             ndvi_integral               +0.971
+  s2_gndvi_media             ndvi_integral               +0.971
+  s2_bsi_media               ndvi_integral               +0.971
+  s2_ndvi_max                s2_gndvi_max                +0.965
+  elevacion                  temperatura_media           -0.950
+  sg_nitrogen                indice_fertilidad           +0.901
+
+Variables eliminadas por alta colinealidad (10):
+  elevacion                       (max |r| = 0.950)
+  s2_bsi_media                    (max |r| = 1.000)
+  s2_gndvi_media                  (max |r| = 1.000)
+  s2_gndvi_std                    (max |r| = 1.000)
+  s2_msavi_media                  (max |r| = 1.000)
+  s2_msavi_std                    (max |r| = 1.000)
+  s2_ndvi_max                     (max |r| = 0.965)
+  s2_ndvi_media                   (max |r| = 1.000)
+  s2_ndvi_std                     (max |r| = 1.000)
+  sg_nitrogen                     (max |r| = 0.901)
+
+Features restantes: 40 -> 30
+Variables conservadas:
+  pendiente
+  twi
+  sg_phh2o
+  sg_soc
+  sg_cec
+  sg_bdod
+  sg_clay
+  sg_sand
+  sg_silt
+  igac_fertilidad
+  igac_ph
+  igac_potasio
+  igac_vocacion
+  piso_termico
+  indice_fertilidad
+  aspecto_sin
+  aspecto_cos
+  ndvi_sigma_temporal
+  ndvi_mean_temporal
+  temperatura_media
+  humedad_media
+  chirps_acum
+  s2_gndvi_max
+  s2_msavi_max
+  s2_bsi_max
+  s2_bsi_std
+  amplitud_termica
+  anomalia_precip
+  ndvi_integral
+  indice_aridez
