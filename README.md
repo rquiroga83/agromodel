@@ -12,14 +12,15 @@
 4. [Fuentes de Datos](#4-fuentes-de-datos)
 5. [Vista Minable — Estructura de Features](#5-vista-minable)
 6. [Modelos de IA](#6-modelos-de-ia)
-7. [Pipeline de Inferencia](#7-pipeline-de-inferencia)
-8. [Estructura del Repositorio](#8-estructura-del-repositorio)
-9. [Instalación y Configuración](#9-instalación-y-configuración)
-10. [Uso](#10-uso)
-11. [Estado del Arte y Justificación Científica](#11-estado-del-arte)
-12. [Métricas de Evaluación](#12-métricas-de-evaluación)
-13. [Roadmap](#13-roadmap)
-14. [Licencia y Créditos](#14-licencia-y-créditos)
+7. [Resultados Preliminares — LLP-Co](#7-resultados-preliminares)
+8. [Pipeline de Inferencia](#8-pipeline-de-inferencia)
+9. [Estructura del Repositorio](#9-estructura-del-repositorio)
+10. [Instalación y Configuración](#10-instalación-y-configuración)
+11. [Uso](#11-uso)
+12. [Estado del Arte y Justificación Científica](#12-estado-del-arte)
+13. [Métricas de Evaluación](#13-métricas-de-evaluación)
+14. [Roadmap](#14-roadmap)
+15. [Licencia y Créditos](#15-licencia-y-créditos)
 
 ---
 
@@ -145,26 +146,73 @@ La vista minable es la tabla rectangular que alimenta los modelos. Cada fila = u
 
 ## 6. Modelos de IA
 
-### Arquitectura de Predicción
+### 6.1 LLP-Co — Modelo Primario (implementado)
+
+**LLP-Co** (Learning from Label Proportions para Colombia) es el modelo actualmente desarrollado. Entrena con proporciones de cultivos a nivel municipal (datos EVA/UPRA) sin requerir etiquetas a nivel de píxel — un paradigma especialmente adecuado cuando la información de campo es escasa.
+
+| Aspecto | Detalle |
+|---------|---------|
+| **Paradigma** | Learning from Label Proportions (LLP) |
+| **Clases** | 18 cultivos: Caña Panelera, Café, Maíz, Plátano, Mango, Fríjol, Cacao, Arveja, Palma, Banano, Cítricos, Mora, Zanahoria, Tomate de Árbol, Yuca, Habichuela, Hortalizas, **Papa** |
+| **Arquitectura** | MLP con proyección de prototipos por Sinkhorn-Knopp; pérdida KL por bolsa |
+| **Bolsas** | Municipios de Cundinamarca (88 municipios activos) |
+| **Features** | 19 variables agroecológicas: topografía, suelo, clima, índices satelitales |
+| **Optimización** | Optuna TPE Sampler + MedianPruner sobre KL divergencia en validación |
+| **Validación externa** | Polígonos de monitoreo UPRA (Papa, confianza=1.0) como ground truth independiente |
+
+**Estrategia de etiquetado jerárquico (3 niveles):**
+1. **L1 — Monitoreo UPRA** (confianza=1.0): polígonos georreferenciados de campo — fuente de verdad para Papa
+2. **L2 — EVA municipal** (confianza=0.7): proporciones de área cosechada por municipio (señal débil, 18 cultivos)
+3. **L3 — SIPRA + NDVI** (confianza=0.4): zonas No_apto como clase negativa
+
+**Split estratificado geográfico:**
+- 80% train / 10% validación / 10% test por municipio
+- Clases prioritarias garantizadas en train: Papa, Palma, Plátano, Banano, Tomate de Árbol
+- Lógica de rescate: si clase prioritaria ausente en train, se mueve el municipio más representativo desde val/test
+
+### 6.2 Modelos Planeados (arquitectura objetivo)
 
 **Modelos individuales** (procesan los datos en paralelo):
-- **Random Forest** — 300 árboles, votación mayoritaria (accuracy 96.7-99.5% en la literatura)
-- **XGBoost** — Gradient boosting con regularización L1/L2 (accuracy 98.2-99.3%)
-- **LightGBM** — Boosting por histogramas, soporte nativo de categóricos (5-10× más rápido)
-- **TabNet** — Red neuronal con atención secuencial para datos tabulares (accuracy 92% DL)
-- **LSTM** — Red recurrente para series temporales de NDVI/precipitación mensuales (accuracy >93%)
+- **Random Forest** — 300 árboles, votación mayoritaria
+- **XGBoost** — Gradient boosting con regularización L1/L2
+- **LightGBM** — Boosting por histogramas, soporte nativo de categóricos
+- **TabNet** — Red neuronal con atención secuencial para datos tabulares
+- **LSTM** — Red recurrente para series temporales de NDVI/precipitación mensuales
 
-**Meta-learner** (combina las 5 predicciones):
-- Stacking Ensemble con Logistic Regression o SVC lineal como meta-learner
+**Meta-learner** (combina las predicciones):
+- Stacking Ensemble con Logistic Regression o SVC lineal
 
 **Explainabilidad**:
-- SHAP (explicación global: qué features importan más)
-- LIME (explicación local: por qué este cultivo para esta parcela)
-- Contrafactuales (alternativas: qué otra cosa podría sembrar)
+- SHAP (explicación global)
+- LIME (explicación local por parcela)
+- Contrafactuales
 
 ---
 
-## 7. Pipeline de Inferencia
+## 7. Resultados Preliminares — LLP-Co
+
+### Validación Espacial de Papa
+
+El modelo LLP-Co predice la probabilidad de Papa por píxel (50 m). La validación externa usa los polígonos de Monitoreo UPRA como ground truth independiente (no participaron en el entrenamiento como etiquetas de clase, solo como distribuciones EVA).
+
+El siguiente mapa compara la probabilidad predicha por LLP-Co (izquierda) contra la presencia real de Papa según UPRA (derecha). Las zonas en rojo indican alta probabilidad de Papa predicha por el modelo; los puntos blancos indican píxeles de monitoreo UPRA con cultivo de Papa confirmado.
+
+![Comparacion espacial LLP-Co vs UPRA Monitoreo](images/Comparacion_espacial_LLP-Co-Upra.png)
+
+### Mapas Espaciales por Cultivo
+
+Probabilidad predicha para los principales cultivos de Cundinamarca, agregada a resolución de 250 m para visualización. Las zonas de mayor intensidad de color corresponden a mayor probabilidad predicha por el modelo LLP-Co.
+
+![Mapas espaciales otros cultivos — LLP-Co](images/LLP-co_otros_cultivos.png)
+
+Los patrones espaciales son agroecológicamente coherentes:
+- **Café y Caña Panelera** — pisos medios (1,000–2,000 m) en vertientes del Magdalena y Tequendama
+- **Mango y Cítricos** — pisos cálidos (< 1,000 m), valle del Magdalena
+- **Tomate de Árbol** — piso frío húmedo (2,000–2,800 m), Oriente cundinamarqués
+
+---
+
+## 8. Pipeline de Inferencia
 
 ```
 Polígono GeoJSON (entrada del agricultor)
@@ -193,7 +241,7 @@ Vector numérico (1, 74)
 
 ---
 
-## 8. Estructura del Repositorio
+## 9. Estructura del Repositorio
 
 ```
 que-sembrar/
@@ -285,6 +333,16 @@ que-sembrar/
 │
 ├── vista_minable/                      # Tabla final de entrenamiento — no en git
 │
+├── modelado/                           # Cuadernos de modelado CRISP-DM
+│   ├── CRISP_DM_AgroPlus_L1_UPRA.ipynb     # Modelo L1: clasificador supervisado Papa (UPRA)
+│   ├── CRISP_DM_AgroPlus_LLP_Co_V1.ipynb   # Modelo L2: LLP-Co 18 cultivos (activo)
+│   ├── checkpoints/                    # Modelos guardados (.joblib, .pt)
+│   └── optuna_llp_co.db                # Base de datos de ensayos Optuna (no en git)
+│
+├── images/                             # Visualizaciones y mapas de resultados
+│   ├── Comparacion_espacial_LLP-Co-Upra.png
+│   └── LLP-co_otros_cultivos.png
+│
 ├── docs/                               # Documentación técnica
 │   ├── analisis_diseno_variables.md    # Decisiones de diseño y justificación científica
 │   ├── analisis_estadistico_eda.ipynb  # EDA con ydata_profiling (CRISP-DM)
@@ -298,7 +356,7 @@ que-sembrar/
 
 ---
 
-## 9. Instalación y Configuración
+## 10. Instalación y Configuración
 
 ### Requisitos del Sistema
 
@@ -346,7 +404,7 @@ scikit-learn, xgboost, lightgbm, pytorch-tabnet, torch, optuna
 
 ---
 
-## 10. Uso
+## 11. Uso
 
 ### Descarga de Datos
 
@@ -435,7 +493,7 @@ curl -X POST http://localhost:8000/recomendar \
 
 ---
 
-## 11. Estado del Arte
+## 12. Estado del Arte
 
 El diseño del sistema se fundamenta en el análisis de 15+ artículos científicos recientes (2023-2025) en recomendación de cultivos y predicción de rendimiento. Los hallazgos principales que respaldan las decisiones de diseño:
 
@@ -449,19 +507,30 @@ El diseño del sistema se fundamenta en el análisis de 15+ artículos científi
 
 ---
 
-## 12. Métricas de Evaluación
+## 13. Métricas de Evaluación
+
+### Métricas LLP-Co (señal débil, sin etiquetas por píxel)
+
+| Métrica | Descripción |
+|---------|-------------|
+| **KL divergencia** | Distancia entre proporción predicha y proporción EVA por municipio (función de pérdida) |
+| **Recall@K por clase** | Tasa en que el cultivo verdadero está entre los K con mayor probabilidad predicha |
+| **Matriz de confusión semántica** | Diagonal = Recall@K; fuera de diagonal = qué predice el modelo cuando falla |
+| **Validación externa Papa** | Recall@K calculado exclusivamente sobre polígonos UPRA Monitoreo (ground truth confianza=1.0) |
+
+### Objetivos Modelo Ensemble (planeado)
 
 | Métrica | Objetivo | Justificación |
 |---------|----------|---------------|
 | Accuracy | > 95% | Benchmark del estado del arte (RF: 96.7%, XGBoost: 98.25%) |
 | F1-score macro | > 0.90 | Maneja desbalance de clases (cultivos minoritarios) |
-| AUC-ROC | > 0.95 | Separabilidad entre clases (Sharafat 2025: AUC=1.00) |
+| AUC-ROC | > 0.95 | Separabilidad entre clases |
 | Inferencia | < 2s | Tiempo de respuesta aceptable para uso interactivo |
 | Top-3 accuracy | > 98% | El cultivo correcto debe estar en las 3 primeras recomendaciones |
 
 ---
 
-## 13. Roadmap
+## 14. Roadmap
 
 - [x] Definición de arquitectura de datos y vista minable
 - [x] Inventario de variables y fuentes de datos
@@ -471,10 +540,17 @@ El diseño del sistema se fundamenta en el análisis de 15+ artículos científi
 - [x] Armonización espacial a 50 m (`procesamiento/01_armonizar_espacial.py`)
 - [x] Agregación temporal mensual → semestral (`procesamiento/02_armonizar_temporal.py`)
 - [x] Feature engineering derivado (`procesamiento/03_feature_engineering.py`)
-- [x] Construcción de la vista minable (`procesamiento/04_construir_vista_minable.py`)
+- [x] Construcción de la vista minable — etiquetado jerárquico 3 niveles, 18 clases (`procesamiento/04_construir_vista_minable.py`)
 - [x] Análisis exploratorio de datos (EDA con ydata_profiling — `docs/analisis_estadistico_eda.ipynb`)
 - [x] Documento técnico de diseño y variables (`docs/analisis_diseno_variables.md`)
-- [ ] Entrenamiento y evaluación de modelos
+- [x] **Modelo LLP-Co** — arquitectura MLP + Sinkhorn prototipos, 18 cultivos, optimización Optuna (`modelado/CRISP_DM_AgroPlus_LLP_Co_V1.ipynb`)
+- [x] **Split geográfico estratificado** — garantía de clases prioritarias (Papa, Palma, Plátano, Banano, Tomate Árbol) en train
+- [x] **Validación externa Papa** — Recall@K contra monitoreo UPRA como ground truth independiente
+- [x] **Mapas espaciales de predicción** — Papa vs UPRA + 5 cultivos principales sobre Cundinamarca
+- [x] **Caracterización de features por cultivo** — tabla y heatmap z-score de 19 variables agroecológicas
+- [ ] Ajuste fino y evaluación cuantitativa de LLP-Co (métricas finales tras optimización Optuna)
+- [ ] Modelo L1 UPRA para Papa (clasificador supervisado sobre píxeles de monitoreo)
+- [ ] Entrenamiento de modelos ensemble (RF, XGBoost, LightGBM, TabNet, LSTM)
 - [ ] Desarrollo de API REST (FastAPI)
 - [ ] Desarrollo de interfaz web con mapa
 - [ ] Validación con agricultores de Cundinamarca
@@ -482,7 +558,7 @@ El diseño del sistema se fundamenta en el análisis de 15+ artículos científi
 
 ---
 
-## 14. Licencia y Créditos
+## 15. Licencia y Créditos
 
 ### Datos Abiertos Utilizados
 

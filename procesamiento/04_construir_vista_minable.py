@@ -453,14 +453,12 @@ def cargar_eva():
         }
 
     # Distribución L2 por (cod_mun, semestre) — para etiquetado soft (LLP).
-    # Se EXCLUYEN Papa y No_apto: Papa la modela L1 (monitoreo UPRA pixel-level,
-    # confianza=1.0) y No_apto la modela L3 (proxy SIPRA+NDVI).
-    # Incluir Papa en la distribución L2 contamina las proporciones porque las
-    # hectareas EVA de Papa son las mismas que L1 ya etiqueto con mayor precision.
-    # La renormalizacion ocurre en asignar_target (prob_vec /= s), asi que basta
-    # con omitir estas clases aqui y las proporciones quedaran correctamente
-    # distribuidas entre los cultivos no-Papa no-No_apto.
-    L2_EXCLUIR = {'Papa', 'No_apto'}
+    # Se excluye No_apto (cubierto por L3: proxy SIPRA+NDVI).
+    # Papa SE INCLUYE: las proporciones EVA de Papa se asignan como señal débil
+    # a TODOS los píxeles del municipio (incluidos los de monitoreo UPRA), de
+    # modo que LLP-Co puede aprender el espacio espectral de Papa. Los píxeles
+    # UPRA conservan fuente='monitoreo' y cultivo='Papa' para validación externa.
+    L2_EXCLUIR = {'No_apto'}
     eva_dist_dict = {}
     for (cod, sem), grp in eva_agg.groupby(['cod_mun', 'semestre']):
         dist = {r['cultivo_norm']: float(r['score_aptitud']) for _, r in grp.iterrows()
@@ -1152,48 +1150,54 @@ def asignar_target(df_pixeles, sem_label, monitoreo_por_semestre, eva_agg,
                         rendimiento[idx_hits] = float(rend_val)
 
     # ───────── L2: EVA municipal (DISTRIBUCIÓN completa, conf=0.7) ─────────
-    # Cambio vs diseño hard-label: ya NO asignamos solo el cultivo dominante.
-    # Asignamos la distribución completa según proporciones EVA del municipio.
+    # La distribución EVA se asigna a TODOS los píxeles del municipio,
+    # incluidos los de monitoreo UPRA (L1), para que LLP-Co reciba señal
+    # débil de Papa en zonas paperas. Los píxeles L1 conservan sus hard
+    # labels (fuente, cultivo, confianza) intactos para validación externa.
     if mun_raster is not None and eva_dist_dict:
-        idx_libres = np.where(confianza == 0)[0]
-        if len(idx_libres) > 0:
-            cod_pix = mun_raster[rows[idx_libres], cols[idx_libres]]
-            mun_unicos, inv = np.unique(cod_pix, return_inverse=True)
+        idx_todos = np.arange(n)
+        cod_pix_todos = mun_raster[rows[idx_todos], cols[idx_todos]]
+        mun_unicos, inv = np.unique(cod_pix_todos, return_inverse=True)
 
-            for i_mun, cod in enumerate(mun_unicos):
-                if cod == 0:
-                    continue  # fuera de Cundinamarca
-                cod_str = str(int(cod)).zfill(5)
-                dist = eva_dist_dict.get((cod_str, sem_label))
-                if dist is None:
-                    continue  # sin datos EVA para este mun-sem
+        # Máscara de píxeles sin etiqueta L1 (para hard labels solamente)
+        es_libre = confianza == 0
 
-                # Construir vector de probabilidad (14 clases) desde dist
-                prob_vec = np.zeros(K, dtype=np.float32)
-                for c_norm, score in dist.items():
-                    k = cultivo_a_id.get(c_norm, id_otros)
-                    prob_vec[k] += float(score)
+        for i_mun, cod in enumerate(mun_unicos):
+            if cod == 0:
+                continue  # fuera de Cundinamarca
+            cod_str = str(int(cod)).zfill(5)
+            dist = eva_dist_dict.get((cod_str, sem_label))
+            if dist is None:
+                continue  # sin datos EVA para este mun-sem
 
-                s = prob_vec.sum()
-                if s <= 0:
-                    continue
-                prob_vec /= s  # normalizar a suma=1
+            # Construir vector de probabilidad desde proporciones EVA
+            prob_vec = np.zeros(K, dtype=np.float32)
+            for c_norm, score in dist.items():
+                k = cultivo_a_id.get(c_norm, id_otros)
+                prob_vec[k] += float(score)
 
-                idx_en_mun = idx_libres[inv == i_mun]
-                prob_matrix[idx_en_mun] = prob_vec
+            s = prob_vec.sum()
+            if s <= 0:
+                continue
+            prob_vec /= s  # normalizar a suma=1
 
-                # Hard-label derivado: argmax (para compat backward)
+            idx_en_mun = idx_todos[inv == i_mun]
+
+            # prob_matrix: aplica a TODOS (incluye monitoreo UPRA)
+            prob_matrix[idx_en_mun] = prob_vec
+
+            # Hard labels: solo píxeles sin etiqueta L1
+            idx_libres_mun = idx_en_mun[es_libre[idx_en_mun]]
+            if len(idx_libres_mun) > 0:
                 k_max = int(np.argmax(prob_vec))
-                cultivo[idx_en_mun] = MODEL_CLASSES[k_max]
-                # Meta-confianza fija por fuente (la distribución captura
-                # la concentración dentro del municipio)
-                confianza[idx_en_mun] = 0.70
-                fuente[idx_en_mun] = 'eva_municipal'
+                cultivo[idx_libres_mun] = MODEL_CLASSES[k_max]
+                confianza[idx_libres_mun] = 0.70
+                fuente[idx_libres_mun] = 'eva_municipal'
 
                 # Rendimiento del cultivo dominante (para compat)
                 top = eva_top_dict.get((cod_str, sem_label)) if eva_top_dict else None
                 if top and top.get('rendimiento') is not None:
-                    rendimiento[idx_en_mun] = top['rendimiento']
+                    rendimiento[idx_libres_mun] = top['rendimiento']
 
     # ───────── L3: No_apto (one-hot, conf=0.4) ─────────
     k_noapto = cultivo_a_id['No_apto']
