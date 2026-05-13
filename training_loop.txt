@@ -1,0 +1,176 @@
+Cell 30
+================================================================================
+import optuna, os
+optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+# === Configuracion del estudio ===
+OPTUNA_TRIALS  = 100
+OPTUNA_EPOCHS  = 80
+OPTUNA_WARMUP  = 5
+OPTUNA_SEED    = 99
+OPTUNA_DB      = 'sqlite:///d:/trabajo/agroplus/modelado/optuna_llp_co.db'
+OPTUNA_STUDY   = 'llp_co_v2'
+
+def objective(trial):
+    # === Espacio de busqueda (7 hiperparametros) ===
+    tau       = trial.suggest_float('TAU',          0.05, 0.2,  log=True)
+    eps_sk    = trial.suggest_float('EPS_SK',       0.005, 0.10,  log=True)
+    sigma     = trial.suggest_float('SIGMA_AUG',    0.01,  0.15,  log=True)
+    lr_init   = trial.suggest_float('LR_INIT',      0.05,  0.3,  log=True)
+    koleo_w   = trial.suggest_float('KOLEO_WEIGHT', 0.01,  0.50,  log=True)
+    p_drop    = trial.suggest_float('P_DROP_AUG',   0.05,  0.40)
+    wd        = trial.suggest_float('WEIGHT_DECAY', 1e-7,  1e-3,  log=True)
+
+    torch.manual_seed(OPTUNA_SEED + trial.number)
+    enc_t   = MLPEncoder(N_FEATURES, hidden_dims=(256, 128, 64),
+                         emb_dim=EMB_DIM, dropout=0.2).to(DEVICE)
+    proto_t = Prototypes(K, EMB_DIM).to(DEVICE)
+    opt_t   = torch.optim.AdamW(
+        list(enc_t.parameters()) + list(proto_t.parameters()),
+        lr=lr_init, weight_decay=wd
+    )
+
+    rng_t    = np.random.RandomState(OPTUNA_SEED + trial.number)
+    ids_list = list(bag_index_tr.keys())
+    lr_min   = lr_init * 1e-2
+    best_kl  = float('inf')
+
+    for epoch in range(OPTUNA_EPOCHS):
+        lr = cosine_warmup_lr(epoch, OPTUNA_EPOCHS, lr_init, lr_min, OPTUNA_WARMUP)
+        for g in opt_t.param_groups:
+            g['lr'] = lr
+
+        for p in proto_t.parameters():
+            p.requires_grad = (epoch >= FREEZE_PROTO_EPOCHS)
+
+        rng_t.shuffle(ids_list)
+        run_train_epoch(enc_t, proto_t, opt_t, ids_list, bag_index_tr,
+                        X_train_t, W_mun_tr_t, tau, eps_sk, sigma, p_drop,
+                        koleo_w, feat_groups, GRAD_CLIP, rng_t)
+
+        kl_epoch = eval_kl(enc_t, proto_t, bag_index_va, X_valid_t, W_mun_va_t, tau)
+
+        # Deteccion de colapso: si un prototipo absorbe >60%, se poda
+        with torch.no_grad():
+            s_idx   = rng_t.choice(len(X_train_t), min(2000, len(X_train_t)), replace=False)
+            assigns = proto_t(enc_t(X_train_t[s_idx].to(DEVICE))).argmax(dim=1)
+            max_uso = torch.bincount(assigns, minlength=K).float().max().item() / len(assigns)
+
+        if max_uso > 0.60:
+            trial.report(10.0, epoch)
+            raise optuna.exceptions.TrialPruned()
+
+        best_kl = min(best_kl, kl_epoch)
+        trial.report(kl_epoch, epoch)
+        if trial.should_prune():
+            raise optuna.exceptions.TrialPruned()
+
+    return best_kl
+
+
+# === Estudio persistente en SQLite ===
+os.makedirs('d:/trabajo/agroplus/modelado', exist_ok=True)
+
+sampler = optuna.samplers.TPESampler(
+    seed=OPTUNA_SEED,
+    multivariate=True,
+    n_startup_trials=12,
+)
+pruner = optuna.pruners.MedianPruner(
+    n_startup_trials=8,
+    n_warmup_steps=OPTUNA_WARMUP + 8,
+    interval_steps=3,
+)
+
+study = optuna.create_study(
+    study_name=OPTUNA_STUDY,
+    storage=OPTUNA_DB,
+    direction='minimize',
+    sampler=sampler,
+    pruner=pruner,
+    load_if_exists=True,
+)
+
+n_prev = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+print(f'Estudio "{OPTUNA_STUDY}" | Trials completados previos: {n_prev}')
+print(f'Lanzando {OPTUNA_TRIALS} trials x {OPTUNA_EPOCHS} epocas...')
+print(f'Params: TAU, EPS_SK, SIGMA_AUG, LR_INIT, KOLEO_WEIGHT, P_DROP_AUG, WEIGHT_DECAY')
+print(f'Sampler: TPE multivariado | Pruner: MedianPruner | DB: {OPTUNA_DB}')
+
+t0_opt = time.time()
+study.optimize(objective, n_trials=OPTUNA_TRIALS, show_progress_bar=True)
+print(f'Optuna completado en {(time.time()-t0_opt)/60:.1f} min')
+
+# === Resultados ===
+best = study.best_trial
+print(f'\nMejor KL_valid : {best.value:.4f}  (trial #{best.number})')
+print('Mejores hiperparametros:')
+for k, v in best.params.items():
+    print(f'  {k:<16} = {v:.6f}')
+
+n_pruned   = len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED])
+n_complete = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+print(f'Completados: {n_complete} | Podados: {n_pruned}')
+
+# === Graficos de diagnostico ===
+n_complete_diag = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+n_pruned_diag   = len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED])
+print(f'Trials completados: {n_complete_diag} | podados: {n_pruned_diag}')
+
+try:
+    fig_hist = optuna.visualization.matplotlib.plot_optimization_history(study)
+    fig_hist.suptitle('Historia de optimizacion - KL_valid por trial', fontsize=12)
+    plt.tight_layout()
+    plt.show()
+except Exception as e:
+    print(f'plot_optimization_history: {e}')
+
+if n_complete_diag >= 4:
+    try:
+        fig_imp = optuna.visualization.matplotlib.plot_param_importances(study)
+        fig_imp.suptitle('Importancia de hiperparametros (fANOVA)', fontsize=12)
+        plt.tight_layout()
+        plt.show()
+    except Exception as e:
+        print(f'plot_param_importances: {e}')
+else:
+    print(f'Importancia: se necesitan >= 4 trials completos (hay {n_complete_diag})')
+
+if n_complete_diag >= 6:
+    try:
+        fig_cnt = optuna.visualization.matplotlib.plot_contour(
+            study, params=['TAU', 'EPS_SK']
+        )
+        fig_cnt.suptitle('Contorno KL_valid: TAU vs EPS_SK', fontsize=12)
+        plt.tight_layout()
+        plt.show()
+    except Exception as e:
+        print(f'plot_contour: {e}')
+
+values = [(t.number, t.value) for t in study.trials if t.value is not None]
+if values:
+    nums, kls = zip(*values)
+    fig_m, ax_m = plt.subplots(figsize=(12, 4))
+    colors = ['#2ca02c' if kl == study.best_value else '#1f77b4' for kl in kls]
+    ax_m.scatter(nums, kls, c=colors, s=30, zorder=3)
+    ax_m.axhline(study.best_value, color='#d62728', linestyle='--', linewidth=1.2,
+                 label=f'Mejor: {study.best_value:.4f}')
+    ax_m.set_xlabel('Numero de trial')
+    ax_m.set_ylabel('KL_valid')
+    ax_m.set_title(f'KL_valid por trial ({n_complete_diag} completos, {n_pruned_diag} podados)')
+    ax_m.legend(); ax_m.grid(True, alpha=0.3)
+    plt.tight_layout(); plt.show()
+
+# === Actualizar variables globales con mejores hiperparametros ===
+TAU          = best.params['TAU']
+EPS_SK       = best.params['EPS_SK']
+SIGMA_AUG    = best.params['SIGMA_AUG']
+LR_INIT      = best.params['LR_INIT']
+KOLEO_WEIGHT = best.params['KOLEO_WEIGHT']
+P_DROP_AUG   = best.params['P_DROP_AUG']
+WEIGHT_DECAY = best.params['WEIGHT_DECAY']
+
+print('\nVariables globales actualizadas. Re-ejecuta la celda de entrenamiento.')
+print(f'  TAU={TAU:.5f}  EPS_SK={EPS_SK:.5f}  SIGMA_AUG={SIGMA_AUG:.5f}')
+print(f'  LR_INIT={LR_INIT:.6f}  KOLEO_WEIGHT={KOLEO_WEIGHT:.5f}')
+print(f'  P_DROP_AUG={P_DROP_AUG:.4f}  WEIGHT_DECAY={WEIGHT_DECAY:.2e}')

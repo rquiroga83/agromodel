@@ -1,0 +1,48 @@
+Cell 31 - Main Training Loop
+================================================================================
+
+torch.manual_seed(SEED)
+np.random.seed(SEED)
+
+encoder    = MLPEncoder(N_FEATURES, hidden_dims=(256, 128, 64), emb_dim=EMB_DIM, dropout=0.2).to(DEVICE)
+prototypes = Prototypes(K, EMB_DIM).to(DEVICE)
+optimizer  = torch.optim.AdamW(
+    list(encoder.parameters()) + list(prototypes.parameters()),
+    lr=LR_INIT, weight_decay=WEIGHT_DECAY
+)
+
+bag_ids_tr_list = list(bag_index_tr.keys())
+history = {"epoch": [], "lr": [], "loss_train": [], "kl_valid": []}
+
+print("Iniciando entrenamiento LLP-Co (bags dinamicos)...")
+print(f"  {len(bag_ids_tr_list)} municipios procesados por epoch (Max pixeles/bag: {BAG_SIZE})")
+t0 = time.time()
+
+for epoch in range(TOTAL_EPOCHS):
+    lr = cosine_warmup_lr(epoch, TOTAL_EPOCHS, LR_INIT, LR_MIN, WARMUP_EPOCHS)
+    for g in optimizer.param_groups:
+        g["lr"] = lr
+
+    for p in prototypes.parameters():
+        p.requires_grad = (epoch >= FREEZE_PROTO_EPOCHS)
+
+    rng = np.random.RandomState(SEED + epoch)
+    rng.shuffle(bag_ids_tr_list)
+
+    loss_avg = run_train_epoch(encoder, prototypes, optimizer, bag_ids_tr_list,
+                               bag_index_tr, X_train_t, W_mun_tr_t, TAU, EPS_SK,
+                               SIGMA_AUG, P_DROP_AUG, KOLEO_WEIGHT, feat_groups,
+                               GRAD_CLIP, rng)
+
+    kl_avg = eval_kl(encoder, prototypes, bag_index_va, X_valid_t, W_mun_va_t, TAU)
+
+    history["epoch"].append(epoch)
+    history["lr"].append(lr)
+    history["loss_train"].append(loss_avg)
+    history["kl_valid"].append(kl_avg)
+
+    print(f"Epoca {epoch+1:2d}/{TOTAL_EPOCHS}  lr={lr:.5f}  "
+          f"loss_train={loss_avg:.4f}  KL_valid={kl_avg:.4f}  "
+          f"({(time.time()-t0):.0f}s)")
+
+print(f"Entrenamiento LLP-Co completado en {(time.time()-t0)/60:.1f} min.")
