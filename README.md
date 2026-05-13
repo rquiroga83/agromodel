@@ -195,20 +195,22 @@ La vista minable es la tabla rectangular que alimenta los modelos. Cada fila = u
 
 El modelo LLP-Co predice la probabilidad de Papa por píxel (50 m). La validación externa usa los polígonos de Monitoreo UPRA como ground truth independiente (no participaron en el entrenamiento como etiquetas de clase, solo como distribuciones EVA).
 
-El siguiente mapa compara la probabilidad predicha por LLP-Co (izquierda) contra la presencia real de Papa según UPRA (derecha). Las zonas en rojo indican alta probabilidad de Papa predicha por el modelo; los puntos blancos indican píxeles de monitoreo UPRA con cultivo de Papa confirmado.
+El siguiente mapa compara la probabilidad predicha por LLP-Co (izquierda, paleta viridis: morado=0 → amarillo=1) contra la presencia real de Papa según UPRA (derecha, escala rojo-oscuro por fracción de píxel). La alta probabilidad predicha (amarillo/verde) se concentra en el centro-norte de Cundinamarca, coincidiendo con el Altiplano y la Sabana (Zipaquirá, Ubaté, Chiquinquirá) — zona agroecológica propia de Papa a 2,500–3,000 m. El mapa UPRA muestra clusters de ground truth en municipios del centro-sur y sur (Sumapaz, Fusagasugá) y el centro, validando que el modelo identifica correctamente las zonas paperas.
 
 ![Comparacion espacial LLP-Co vs UPRA Monitoreo](images/Comparacion_espacial_LLP-Co-Upra.png)
 
 ### Mapas Espaciales por Cultivo
 
-Probabilidad predicha para los principales cultivos de Cundinamarca, agregada a resolución de 250 m para visualización. Las zonas de mayor intensidad de color corresponden a mayor probabilidad predicha por el modelo LLP-Co.
+Probabilidad predicha para 5 cultivos principales de Cundinamarca, agregada a resolución de 250 m. Cada mapa usa su propia escala de color (viridis); nótese que las escalas máximas difieren entre cultivos (Caña y Café hasta ~0.7; Mango, Cítricos y Tomate de Árbol hasta ~0.25–0.30).
 
 ![Mapas espaciales otros cultivos — LLP-Co](images/LLP-co_otros_cultivos.png)
 
 Los patrones espaciales son agroecológicamente coherentes:
-- **Café y Caña Panelera** — pisos medios (1,000–2,000 m) en vertientes del Magdalena y Tequendama
-- **Mango y Cítricos** — pisos cálidos (< 1,000 m), valle del Magdalena
-- **Tomate de Árbol** — piso frío húmedo (2,000–2,800 m), Oriente cundinamarqués
+- **Caña Panelera** — probabilidades altas en el occidente y noroccidente (provincias de Gualivá, Tequendama, Rionegro), pisos templados entre 1,000–2,000 m
+- **Café** — concentrado en el norte del departamento (Almeidas, Rionegro), vertientes de la cordillera Oriental a 1,200–1,800 m
+- **Mango** — probabilidades bajas pero geográficamente coherentes con las zonas cálidas del valle del Magdalena (< 1,000 m)
+- **Cítricos** — distribución dispersa en zonas cálidas, valores máximos moderados (~0.25)
+- **Tomate de Árbol** — áreas reducidas y concentradas en zonas específicas de piso frío húmedo
 
 ---
 
