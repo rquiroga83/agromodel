@@ -1,4 +1,4 @@
-# 🌱 ¿Qué Sembrar? — Sistema de Recomendación de Cultivos para Cundinamarca
+# ¿Qué Sembrar? — Sistema de Recomendación de Cultivos para Cundinamarca
 
 > Plataforma de planificación agrícola basada en inteligencia artificial que recibe un polígono geográfico (la parcela del agricultor) y devuelve un ranking de cultivos ordenados por probabilidad de éxito, fundamentado en la aptitud agroecológica real de esa ubicación específica.
 
@@ -8,568 +8,492 @@
 
 1. [Resumen del Proyecto](#1-resumen-del-proyecto)
 2. [Problema que Resuelve](#2-problema-que-resuelve)
-3. [Arquitectura General](#3-arquitectura-general)
-4. [Fuentes de Datos](#4-fuentes-de-datos)
-5. [Vista Minable — Estructura de Features](#5-vista-minable)
-6. [Modelos de IA](#6-modelos-de-ia)
-7. [Resultados Preliminares — LLP-Co](#7-resultados-preliminares)
-8. [Pipeline de Inferencia](#8-pipeline-de-inferencia)
+3. [Fuentes de Datos](#3-fuentes-de-datos)
+4. [Vista Minable](#4-vista-minable)
+5. [Arquitectura de Modelos](#5-arquitectura-de-modelos)
+6. [Modelo L1 — Papa (XGBoost)](#6-modelo-l1--papa-xgboost)
+7. [Modelo L2 — LLP-Co (18 cultivos)](#7-modelo-l2--llp-co-18-cultivos)
+8. [Resultados y Visualizaciones](#8-resultados-y-visualizaciones)
 9. [Estructura del Repositorio](#9-estructura-del-repositorio)
-10. [Instalación y Configuración](#10-instalación-y-configuración)
-11. [Uso](#11-uso)
-12. [Estado del Arte y Justificación Científica](#12-estado-del-arte)
-13. [Métricas de Evaluación](#13-métricas-de-evaluación)
-14. [Roadmap](#14-roadmap)
-15. [Licencia y Créditos](#15-licencia-y-créditos)
+10. [Instalación y Uso](#10-instalación-y-uso)
+11. [Roadmap](#11-roadmap)
+12. [Referencias](#12-referencias)
+13. [Licencia y Créditos](#13-licencia-y-créditos)
 
 ---
 
 ## 1. Resumen del Proyecto
 
-**¿Qué Sembrar?** es un módulo de inteligencia artificial para la planificación agrícola en el departamento de Cundinamarca, Colombia. Integra cuatro familias de datos geoespaciales —climáticos, edafológicos, satelitales y topográficos— para generar recomendaciones personalizadas de cultivos a nivel de parcela.
+**¿Qué Sembrar?** es un módulo de inteligencia artificial para la planificación agrícola en Cundinamarca, Colombia. Integra cuatro familias de datos geoespaciales — climáticos, edafológicos, satelitales y topográficos — para generar recomendaciones personalizadas de cultivos a nivel de parcela.
 
 | Aspecto | Detalle |
 |---------|---------|
 | **Región objetivo** | Cundinamarca, Colombia (24,210 km², 116 municipios) |
 | **Rango altitudinal** | 200 m (Valle del Magdalena) a 3,500+ m (Páramos) |
-| **Ventana temporal** | 2020–2025 (6 años, 12 semestres agrícolas) |
-| **Resolución espacial** | 50 m × 50 m (configurable via `RESOLUCION_M` en `config.py`) |
-| **Catálogo de cultivos** | ~40–200 cultivos (según filtro de frecuencia) |
-| **Tiempo de inferencia** | < 2 segundos por consulta |
-| **Explainabilidad** | SHAP + LIME + Contrafactuales |
+| **Ventana temporal** | 2020–2024 (5 años, 10 semestres agrícolas) |
+| **Resolución espacial** | 50 m × 50 m |
+| **Catálogo de cultivos** | 18 clases (L1: Papa; L2: 17 cultivos adicionales) |
+| **Vista minable** | 4,164,485 filas · 77 columnas · Parquet |
 
-### Flujo de Uso
+### Flujo de Uso (objetivo)
 
 1. El agricultor dibuja su parcela en un mapa web
-2. El sistema extrae automáticamente las 74+ variables agroecológicas de esa ubicación
-3. Cinco modelos de ML procesan los datos en paralelo
-4. Un meta-learner combina las predicciones
-5. El agricultor recibe un ranking: "Papa 87%, Arveja 72%, Maíz 65%..." con explicaciones de por qué
+2. El sistema extrae automáticamente las variables agroecológicas de esa ubicación
+3. El ensamble jerárquico L1/L2/L3 genera distribuciones de probabilidad por cultivo
+4. El agricultor recibe un ranking: "Papa 72%, Arveja 60%, Maíz 45%..." con explicaciones
 
 ---
 
 ## 2. Problema que Resuelve
 
-Los agricultores de Cundinamarca enfrentan decisiones de siembra complejas condicionadas por la alta variabilidad agroecológica del departamento (4 pisos térmicos, suelos ácidos con alta saturación de aluminio, bimodalidad de lluvias). Actualmente las decisiones se basan en tradición familiar o recomendaciones genéricas que no consideran las condiciones específicas de cada parcela.
+Los agricultores de Cundinamarca enfrentan decisiones de siembra complejas condicionadas por la alta variabilidad agroecológica del departamento (4 pisos térmicos, suelos ácidos con alta saturación de aluminio, bimodalidad de lluvias). Las decisiones actuales se basan en tradición familiar o recomendaciones genéricas que no consideran las condiciones específicas de cada parcela.
 
-Este sistema transforma datos públicos abiertos (IDEAM, IGAC, UPRA, Copernicus) en recomendaciones accionables y explicables a nivel de finca.
-
----
-
-## 3. Arquitectura General
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    INTERFAZ WEB (Frontend)                       │
-│  Agricultor dibuja polígono → Recibe ranking de cultivos + XAI   │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ GeoJSON del polígono
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    API REST (FastAPI)                             │
-│  POST /recomendar  →  Extracción geoespacial → Predicción        │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ Vector (1, 74)
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              PIPELINE DE PREDICCIÓN                              │
-│                                                                  │
-│  ┌──────┐ ┌─────────┐ ┌──────────┐ ┌────────┐ ┌──────┐         │
-│  │  RF  │ │ XGBoost │ │ LightGBM │ │ TabNet │ │ LSTM │         │
-│  └──┬───┘ └────┬────┘ └────┬─────┘ └───┬────┘ └──┬───┘         │
-│     │          │           │            │         │              │
-│     └──────────┴───────────┴────────────┴─────────┘              │
-│                           │                                      │
-│                    Meta-Learner (Stacking)                        │
-│                           │                                      │
-│                    XAI (SHAP + LIME)                              │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ Ranking + Explicaciones
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              CAPAS GEOESPACIALES PRECALCULADAS                   │
-│                                                                  │
-│  Clima (IDEAM/CHIRPS) │ Suelo (IGAC/SoilGrids)                  │
-│  Satélite (S2/S1)     │ Topografía (Copernicus DEM)             │
-│  Target (EVA/UPRA)    │ Aptitud (SIPRA)                         │
-└─────────────────────────────────────────────────────────────────┘
-```
+El sistema transforma datos públicos abiertos (IDEAM, IGAC, UPRA, Copernicus) en recomendaciones accionables a nivel de finca, usando **señal débil a escala municipal** (EVA) cuando no hay etiquetas por píxel, y **ground truth de campo** (Monitoreo UPRA) cuando existe.
 
 ---
 
-## 4. Fuentes de Datos
+## 3. Fuentes de Datos
 
-### 4.1 Features (Variables Predictoras)
+### 3.1 Features (Variables Predictoras)
 
-| Familia | Fuente | Formato | Variables | Cobertura |
-|---------|--------|---------|-----------|-----------|
-| **Climática** | IDEAM (datos.gov.co) | API SODA → JSON | Temperatura, Precipitación, Humedad | Estaciones puntuales, interpoladas |
-| **Climática** | IDEAM Normales | CSV | Medias 1961-2020 (brillo solar, evaporación) | Nacional |
-| **Climática** | CHIRPS v2 | GeoTIFF | Precipitación mensual satelital | ~5.3 km, desde 1981 |
-| **Edafológica** | IGAC | ArcGIS REST → GeoJSON | pH, Al, P, K, fertilidad, vocación de uso | 1:100.000 |
-| **Edafológica** | SoilGrids 2.0 (ISRIC) | GeoTIFF (COG) | Clay, sand, silt, bdod, soc, cec, nitrogen | 250 m global |
-| **Satelital** | Sentinel-2 L2A (CDSE) | GeoTIFF via SentinelHub | NDVI, GNDVI, EVI, NDWI, MSAVI, BSI, SAVI | 50 m (configurable), 4 tiles/mes |
-| **Satelital** | Sentinel-1 GRD (CDSE) | GeoTIFF via SentinelHub | VV, VH, ratio VH/VV (dB) | 50 m (configurable), 4 tiles/mes |
-| **Topográfica** | Copernicus DEM GLO-30 | GeoTIFF via CDSE | Elevación, pendiente, aspecto, curvatura, TWI | 30 m nativo, remuestreado a 50 m |
+| Familia | Fuente | Variables | Cobertura |
+|---------|--------|-----------|-----------|
+| **Climática** | IDEAM (API SODA) | Temperatura, Precipitación, Humedad | Estaciones puntuales, interpoladas por Kriging |
+| **Climática** | CHIRPS v2 | Precipitación mensual satelital | ~5.3 km, 1981-actualidad |
+| **Edafológica** | IGAC (ArcGIS REST) | pH, fertilidad, potasio, vocación de uso | 1:100.000 |
+| **Edafológica** | SoilGrids 2.0 (ISRIC) | Clay, sand, silt, bdod, soc, cec, nitrogen, pH | 250 m global |
+| **Satelital** | Sentinel-2 L2A (CDSE) | NDVI, GNDVI, EVI, NDWI, MSAVI, BSI, SAVI (estadísticos semestrales) | 50 m, 4 composites/mes |
+| **Satelital** | Sentinel-1 GRD (CDSE) | VV, VH, ratio VH/VV (dB) | 50 m |
+| **Topográfica** | Copernicus DEM GLO-30 | Elevación, pendiente, aspecto, curvatura, TWI | 30 m nativo → 50 m |
+| **Municipios** | DANE | División político-administrativa | Shapefile oficial |
 
-### 4.2 Target (Etiquetas de Entrenamiento)
+### 3.2 Target (Etiquetas de Entrenamiento)
 
-| Fuente | Resolución | Periodo | Uso |
-|--------|-----------|---------|-----|
-| **EVA** (UPRA/MADR) | Municipal | 2007–2024 | Cultivo + rendimiento por municipio-semestre (confianza=0.7) |
-| **Monitoreo UPRA** | Parcela (~25 m) | 2021–2023 | Polígonos georreferenciados de papa, maíz, arroz, cacao (confianza=1.0) |
-| **SIPRA Aptitud** | 1:100.000 | Estático | Aptitud Alta/Media/Baja/No Apta por cultivo (confianza=0.2–0.5) |
+| Fuente | Tipo | Confianza | Uso en el sistema |
+|--------|------|-----------|-------------------|
+| **Monitoreo UPRA** | Polígonos de campo (~25 m) | 1.0 | L1: etiqueta hard Papa (486,058 píxeles) |
+| **EVA** (UPRA/MADR) | Área cosechada por municipio-semestre | 0.7 | L2: proporciones de bag (señal débil) |
+| **SIPRA Aptitud** | Zonificación 1:100.000 | 0.4 | L3: proxy No_apto (pendiente) |
 
 ---
 
-## 5. Vista Minable
+## 4. Vista Minable
 
-La vista minable es la tabla rectangular que alimenta los modelos. Cada fila = un (píxel, semestre). Cada columna = un feature.
+La vista minable es la tabla rectangular que alimenta los modelos. Cada fila = un (píxel, semestre).
 
-- **~74 features base** (expandible a ~120 con estadísticos temporales)
-- **4 columnas target** (cultivo, confianza, fuente, rendimiento)
-- **5 columnas metadata** (pixel_id, x, y, cod_mun, semestre)
-- **CRS:** EPSG:3116 (MAGNA-SIRGAS Colombia Bogotá)
-- **Formato:** Apache Parquet
+| Parámetro | Valor |
+|-----------|-------|
+| **Archivo** | `vista_minable/vista_minable_full.parquet` |
+| **Filas** | 4,164,485 (píxel-semestre) |
+| **Columnas raw** | 77 |
+| **Clases de cultivos** | 20 (catálogo completo) |
+| **Memoria en RAM** | ~1.4 GB |
+| **CRS** | EPSG:3116 (MAGNA-SIRGAS Colombia Bogotá) |
+| **Ventana temporal** | 2020–2024 |
 
 ### Familias de Features
 
-| # | Familia | Features | Tipo |
-|---|---------|----------|------|
-| 1-35 | 🌤 Climáticas | temp_media, temp_max, temp_min, precip_mensual×12, humedad, brillo_solar | Float |
-| 36-51 | 🪨 Edafológicas | pH, sat_aluminio, P, K, arcilla, arena, limo, densidad, CO, N, CIC, vocación | Float + Cat |
-| 52-61 | 🛰 Satelitales | NDVI/GNDVI/EVI/NDWI/MSAVI/BSI/SAVI (stats), VV, VH, ratio | Float |
-| 62-66 | ⛰ Topográficas | elevación, pendiente, aspecto, curvatura, TWI | Float |
-| 67-74 | ⚙️ Derivadas | temp_ajustada, piso_termico, indice_fertilidad, indice_aridez, ndvi_max | Float + Cat |
+| Familia | Variables | Ejemplos |
+|---------|-----------|---------|
+| **Topografía** (5) | Morfología del terreno | pendiente, TWI, aspecto_sin/cos, piso_termico |
+| **Suelo SoilGrids** (7) | Propiedades físico-químicas globales | pH, SOC, CEC, bdod, clay, sand, silt |
+| **Suelo IGAC** (4) | Cartografía oficial colombiana | fertilidad, pH_igac, potasio, vocación |
+| **Clima** (6) | Estadísticos semestrales | temperatura_media, humedad, chirps_acum, amplitud_termica, anomalia_precip, indice_aridez |
+| **Sentinel-2** (17) | Índices espectrales por semestre | ndvi/gndvi/msavi/bsi (media, max, std), ndvi_integral, ndvi_sigma_temporal |
+| **Derivados** (3) | Feature engineering | indice_fertilidad, ndvi_mean_temporal, piso_termico |
+
+### Etiquetado Jerárquico (3 capas)
+
+| Capa | Fuente | Confianza | Cobertura |
+|------|--------|-----------|-----------|
+| **L1** | Monitoreo UPRA (campo) | 1.0 | Altiplano cundiboyacense — Papa |
+| **L2** | EVA municipal | 0.7 | Todo Cundinamarca — 18 cultivos |
+| **L3** | No_apto proxy (SIPRA+NDVI<0.15) | 0.4 | Zonas no agrícolas |
 
 ---
 
-## 6. Modelos de IA
+## 5. Arquitectura de Modelos
 
-### 6.1 LLP-Co — Modelo Primario (implementado)
+El sistema usa un **ensamble jerárquico** de tres capas especializadas, no un ensemble de modelos genéricos:
 
-**LLP-Co** (Learning from Label Proportions para Colombia) es el modelo actualmente desarrollado. Entrena con proporciones de cultivos a nivel municipal (datos EVA/UPRA) sin requerir etiquetas a nivel de píxel — un paradigma especialmente adecuado cuando la información de campo es escasa.
+```
+Píxel geoespacial (40-77 features)
+        │
+        ▼
+L1 — XGBoost Papa (binario)
+        │ P(Papa | x)
+        ├─ si Papa → clasificación L1
+        │
+        ▼
+L2 — LLP-Co MLP (17 cultivos)
+        │ P(cultivo | x) sobre 17 clases
+        │
+        ▼
+L3 — SIPRA + NDVI (No_apto)
+        │ P(no_apto | x)
+        ▼
+Stacking final → ranking Top-K cultivos
+```
 
-| Aspecto | Detalle |
-|---------|---------|
-| **Paradigma** | Learning from Label Proportions (LLP) |
-| **Clases** | 18 cultivos: Caña Panelera, Café, Maíz, Plátano, Mango, Fríjol, Cacao, Arveja, Palma, Banano, Cítricos, Mora, Zanahoria, Tomate de Árbol, Yuca, Habichuela, Hortalizas, **Papa** |
-| **Arquitectura** | MLP con proyección de prototipos por Sinkhorn-Knopp; pérdida KL por bolsa |
-| **Bolsas** | Municipios de Cundinamarca (88 municipios activos) |
-| **Features** | 19 variables agroecológicas: topografía, suelo, clima, índices satelitales |
-| **Optimización** | Optuna TPE Sampler + MedianPruner sobre KL divergencia en validación |
-| **Validación externa** | Polígonos de monitoreo UPRA (Papa, confianza=1.0) como ground truth independiente |
-
-**Estrategia de etiquetado jerárquico (3 niveles):**
-1. **L1 — Monitoreo UPRA** (confianza=1.0): polígonos georreferenciados de campo — fuente de verdad para Papa
-2. **L2 — EVA municipal** (confianza=0.7): proporciones de área cosechada por municipio (señal débil, 18 cultivos)
-3. **L3 — SIPRA + NDVI** (confianza=0.4): zonas No_apto como clase negativa
-
-**Split estratificado geográfico:**
-- 80% train / 10% validación / 10% test por municipio
-- Clases prioritarias garantizadas en train: Papa, Palma, Plátano, Banano, Tomate de Árbol
-- Lógica de rescate: si clase prioritaria ausente en train, se mueve el municipio más representativo desde val/test
-
-### 6.2 Modelos Planeados (arquitectura objetivo)
-
-**Modelos individuales** (procesan los datos en paralelo):
-- **Random Forest** — 300 árboles, votación mayoritaria
-- **XGBoost** — Gradient boosting con regularización L1/L2
-- **LightGBM** — Boosting por histogramas, soporte nativo de categóricos
-- **TabNet** — Red neuronal con atención secuencial para datos tabulares
-- **LSTM** — Red recurrente para series temporales de NDVI/precipitación mensuales
-
-**Meta-learner** (combina las predicciones):
-- Stacking Ensemble con Logistic Regression o SVC lineal
-
-**Explainabilidad**:
-- SHAP (explicación global)
-- LIME (explicación local por parcela)
-- Contrafactuales
+| Capa | Modelo | Artefacto | Estado |
+|------|--------|-----------|--------|
+| **L1** | XGBoost binario (Papa vs no-Papa) | `checkpoints/l1_upra_papa_v3.joblib` | Entrenado |
+| **L2** | LLP-Co MLP 17 cultivos | `checkpoints/l2_llp_co.pt` | Entrenado |
+| **L3** | XGBoost suave (No_apto) | `checkpoints/l2_xgb_soft.json` | En desarrollo |
+| **Stacking** | Meta-learner | — | Pendiente |
 
 ---
 
-## 7. Resultados Preliminares — LLP-Co
+## 6. Modelo L1 — Papa (XGBoost)
+
+**Objetivo:** clasificador binario que detecta píxeles de Papa usando ground truth de campo del Monitoreo UPRA.
+
+### Datos de entrenamiento
+
+| Partición | Filas | Municipios | % Papa |
+|-----------|-------|-----------|--------|
+| **Train** | 1,732,760 | 64 | 15.63% |
+| **Valid** | 687,190 | 14 | 21.64% |
+| **Test** | 426,850 | 14 | 15.59% |
+
+- **Filtro de envelope:** solo píxeles en rango altitudinal Papa [2,286–3,618 m] para evitar separación geográfica trivial
+- **Split:** GroupShuffleSplit espacial por municipio (cero solapamiento de píxeles entre folds)
+- **Features:** 27 (de 77 raw), tras eliminar leakage temporal (`ndvi_sigma/mean_temporal`), columnas `prob_*`, alta colinealidad y baja varianza
+
+### Features seleccionados (27)
+
+| Categoría | Features |
+|-----------|---------|
+| Topografía | `pendiente`, `twi`, `aspecto_sin`, `aspecto_cos` |
+| Suelo SoilGrids | `sg_phh2o`, `sg_soc`, `sg_cec`, `sg_bdod`, `sg_clay`, `sg_sand`, `sg_silt` |
+| Suelo IGAC | `igac_fertilidad`, `igac_ph`, `igac_potasio`, `igac_vocacion` |
+| Derivados | `indice_fertilidad` |
+| Clima | `temperatura_media`, `humedad_media`, `chirps_acum`, `amplitud_termica`, `anomalia_precip`, `indice_aridez` |
+| Sentinel-2 | `s2_gndvi_max`, `s2_msavi_max`, `s2_bsi_max`, `s2_bsi_std` |
+| Fenología | `ndvi_integral` |
+
+Top-3 por importancia (XGBoost gain): `humedad_media` (0.237), `sg_phh2o` (0.100), `chirps_acum` (0.088)
+
+### Resultados
+
+| Métrica | Validación | Test (hold-out) |
+|---------|-----------|-----------------|
+| **PR-AUC** | 0.4532 | **0.4370** |
+| **ROC-AUC** | — | **0.7769** |
+| F1 (threshold=0.60) | — | 0.417 |
+| Precision | — | 0.333 |
+| Recall | — | 0.850 |
+
+**Configuración del modelo final:**
+- 380 árboles (early stopping real, no el sugerido por Optuna)
+- Entrenado en train+valid combinados (2,419,950 filas)
+- Threshold operativo: **0.60** (máximo F1)
+- Optimización: Optuna TPE, 50 trials limpios (estudio v4)
+
+**Advertencia de leakage detectado y corregido:** las versiones v1/v2/v3-temprano alcanzaban PR-AUC=1.0 por tres fuentes de fuga: features cross-semestre constantes por píxel (`ndvi_sigma/mean_temporal`), columnas `prob_*` (el target mismo), y solapamiento espacial del 99.2% en split temporal. La versión final (v3 limpia) usa split espacial por municipio.
+
+---
+
+## 7. Modelo L2 — LLP-Co (18 cultivos)
+
+**Objetivo:** clasificador multi-clase débilmente supervisado que asigna probabilidades a 18 cultivos usando únicamente proporciones de área cosechada por municipio (EVA), sin etiquetas por píxel.
+
+**Base teórica:** La Rosa, Oliveira & Ghamisi (2022). *Learning crop type mapping from regional label proportions in large-scale SAR and optical imagery*. arXiv:2208.11607.
+
+### Datos de entrenamiento
+
+| Partición | Municipios | Píxeles activos |
+|-----------|-----------|-----------------|
+| **Train** | 81 | 1,533,342 |
+| **Validación** | 15 | 534,427 |
+| **Test** | 15 | 257,625 |
+
+- **Píxeles totales L2:** 2,990,171 → 2,325,394 activos (77.8%) tras filtro de vegetación activa (NDVI>0.15, excluye bosque denso y pasturas estables)
+- **Bags:** municipio × semestre; supervisión = proporciones EVA `w ∈ Δ_K`
+- **Split:** estratificado geográfico con garantía de clases prioritarias en train (Papa, Palma, Plátano, Banano, Tomate de Árbol)
+
+### Arquitectura
+
+```
+Entrada: x ∈ ℝ^40  (features escaladas con StandardScaler)
+    │
+    ├──► Linear(40 → 256) + LayerNorm + GELU + Dropout(0.20)
+    ├──► Linear(256 → 128) + LayerNorm + GELU + Dropout(0.20)
+    ├──► Linear(128 → 64) + LayerNorm + GELU + Dropout(0.20)
+    └──► Linear(64 → 512) + L2-Normalize
+                 │
+                 ▼
+         z ∈ ℝ^512, ‖z‖₂ = 1   (embedding esférico)
+                 │
+         Similitud coseno con K=18 prototipos V ∈ ℝ^{18×512}
+                 │
+         Sinkhorn-Knopp (prior = proporciones EVA del municipio)
+                 │
+         P(cultivo | píxel) = softmax(z · V^T / τ)
+```
+
+**Clases (18):**
+Caña Panelera, Café, Maíz, Plátano, Mango, Fríjol, Cacao, Arveja, Palma, Banano, Cítricos, Mora, Zanahoria, Tomate de Árbol, Yuca, Habichuela, Hortalizas, **Papa**
+
+### Hiperparámetros (optimizados con Optuna TPE, 500 trials)
+
+| Parámetro | Valor |
+|-----------|-------|
+| `TAU (τ)` — temperatura softmax | 0.04965 |
+| `EPS_SK (ε)` — regularización Sinkhorn | 0.06020 |
+| `SIGMA_AUG` — ruido de augmentación | 0.08677 |
+| Embedding dim | 512 |
+| Épocas totales | 500 |
+| Optimizador | AdamW (LR cosine warmup) |
+
+### Resultados
+
+**Métricas de bag (KL divergencia validación):**
+
+| Estadístico | KL |
+|-------------|-----|
+| Mediana | 0.5601 |
+| Media | 0.8185 |
+| P25 | 0.2913 |
+| P75 | 0.6404 |
+| Máximo | 5.71 (municipio 25530) |
+
+**Métricas de píxel (pseudo-GT = cultivo dominante del municipio):**
+
+| Métrica | Validación | Test |
+|---------|-----------|------|
+| Top-1 | 27.45% | 31.38% |
+| **Top-3** | **60.25%** | **68.87%** |
+| Top-5 | 77.55% | 82.78% |
+| Top-8 | 86.56% | 88.95% |
+
+> Top-3 es la métrica operativa: el cultivo correcto está entre los 3 primeros para el 60–69% de los píxeles.
+
+**Recall@K por clase (validación):**
+
+| Cultivo | n_píxeles | R@1 | R@3 | R@5 |
+|---------|-----------|-----|-----|-----|
+| Arveja | 153,790 | 41.2% | 77.4% | 94.5% |
+| Hortalizas | 146,126 | 35.6% | 77.6% | 93.2% |
+| Café | 9,475 | 31.1% | 54.7% | 67.6% |
+| Mango | 1,641 | 28.2% | 54.1% | 71.7% |
+| Fríjol | 18,672 | 22.9% | 37.4% | 51.8% |
+| Maíz | 69,148 | 19.3% | 56.6% | 76.6% |
+| Caña Panelera | 1,976 | 16.9% | 56.0% | 71.4% |
+| Zanahoria | 80,967 | 12.4% | 44.3% | 75.2% |
+| Cítricos | 763 | 9.4% | 50.5% | 64.1% |
+| Palma | 51,869 | 0.0% | 0.0% | 0.0% |
+| **Macro avg** | **534,427** | **12.8%** | **29.9%** | **39.2%** |
+
+> Palma: recall 0% — escasa en Cundinamarca; el prior EVA asigna proporciones muy bajas y el modelo no converge a su firma.
+
+---
+
+## 8. Resultados y Visualizaciones
 
 ### Validación Espacial de Papa
 
-El modelo LLP-Co predice la probabilidad de Papa por píxel (50 m). La validación externa usa los polígonos de Monitoreo UPRA como ground truth independiente (no participaron en el entrenamiento como etiquetas de clase, solo como distribuciones EVA).
+El modelo LLP-Co predice la probabilidad de Papa por píxel (50 m). La validación externa usa polígonos de Monitoreo UPRA como ground truth independiente — no participaron en el entrenamiento como etiquetas individuales, solo como distribuciones EVA municipales.
 
-El siguiente mapa compara la probabilidad predicha por LLP-Co (izquierda, paleta viridis: morado=0 → amarillo=1) contra la presencia real de Papa según UPRA (derecha, escala rojo-oscuro por fracción de píxel). La alta probabilidad predicha (amarillo/verde) se concentra en el centro-norte de Cundinamarca, coincidiendo con el Altiplano y la Sabana (Zipaquirá, Ubaté, Chiquinquirá) — zona agroecológica propia de Papa a 2,500–3,000 m. El mapa UPRA muestra clusters de ground truth en municipios del centro-sur y sur (Sumapaz, Fusagasugá) y el centro, validando que el modelo identifica correctamente las zonas paperas.
+**Izquierda:** probabilidad predicha (paleta viridis, morado=0 → amarillo=1). Las zonas de alta probabilidad se concentran en el centro-norte del departamento, coincidiendo con el Altiplano y la Sabana (Zipaquirá, Ubaté) — zona agroecológica propia de Papa a 2,500–3,000 m.
+
+**Derecha:** densidad de Papa UPRA (escala rojo-oscuro = fracción de píxeles 50m etiquetados Papa dentro de cada celda de 250m). Los clusters de campo se ubican en municipios del centro-sur (Sumapaz, Fusagasugá) y el centro, validando los patrones predichos.
 
 ![Comparacion espacial LLP-Co vs UPRA Monitoreo](images/Comparacion_espacial_LLP-Co-Upra.png)
 
 ### Mapas Espaciales por Cultivo
 
-Probabilidad predicha para 5 cultivos principales de Cundinamarca, agregada a resolución de 250 m. Cada mapa usa su propia escala de color (viridis); nótese que las escalas máximas difieren entre cultivos (Caña y Café hasta ~0.7; Mango, Cítricos y Tomate de Árbol hasta ~0.25–0.30).
+Probabilidad predicha para 5 cultivos principales, agregada a 250 m para visualización. Cada mapa usa su propia escala (Caña Panelera y Café hasta ~0.7; Mango, Cítricos y Tomate de Árbol hasta ~0.25–0.30).
 
 ![Mapas espaciales otros cultivos — LLP-Co](images/LLP-co_otros_cultivos.png)
 
-Los patrones espaciales son agroecológicamente coherentes:
-- **Caña Panelera** — probabilidades altas en el occidente y noroccidente (provincias de Gualivá, Tequendama, Rionegro), pisos templados entre 1,000–2,000 m
-- **Café** — concentrado en el norte del departamento (Almeidas, Rionegro), vertientes de la cordillera Oriental a 1,200–1,800 m
-- **Mango** — probabilidades bajas pero geográficamente coherentes con las zonas cálidas del valle del Magdalena (< 1,000 m)
-- **Cítricos** — distribución dispersa en zonas cálidas, valores máximos moderados (~0.25)
-- **Tomate de Árbol** — áreas reducidas y concentradas en zonas específicas de piso frío húmedo
-
----
-
-## 8. Pipeline de Inferencia
-
-```
-Polígono GeoJSON (entrada del agricultor)
-    │
-    ▼
-Extracción geoespacial (zonal stats sobre capas precalculadas)  ~0.5s
-    │
-    ▼
-Vector numérico (1, 74)
-    │
-    ├─→ RF          → prob(1, N_clases)  ─┐
-    ├─→ XGBoost     → prob(1, N_clases)  ─┤
-    ├─→ LightGBM    → prob(1, N_clases)  ─┤  ~0.3s (paralelo)
-    ├─→ TabNet      → prob(1, N_clases)  ─┤
-    └─→ LSTM        → prob(1, N_clases)  ─┘
-                                           │
-                                           ▼
-                           Meta-learner (Stacking)           ~0.01s
-                                           │
-                                           ▼
-                           SHAP/LIME explicaciones           ~0.3s
-                                           │
-                                           ▼
-                Ranking: Papa 87% | Arveja 72% | Maíz 65%    TOTAL ~1.4s
-```
+Los patrones son agroecológicamente coherentes:
+- **Caña Panelera** — probabilidades altas en occidente y noroccidente (Gualivá, Tequendama, Rionegro), pisos templados 1,000–2,000 m
+- **Café** — concentrado en el norte (Almeidas, Rionegro), vertientes de la cordillera Oriental a 1,200–1,800 m
+- **Mango** — coherente con zonas cálidas del valle del Magdalena (< 1,000 m)
+- **Cítricos** — distribución dispersa en zonas cálidas, valores moderados (~0.25)
+- **Tomate de Árbol** — áreas reducidas en zonas de piso frío húmedo
 
 ---
 
 ## 9. Estructura del Repositorio
 
 ```
-que-sembrar/
-├── README.md                           # Este archivo
-├── SPEC.md                             # Especificación técnica para desarrollo
-├── requirements.txt                    # Dependencias Python
+agroplus/
+├── README.md                               # Este archivo
+├── SPEC.md                                 # Especificación técnica
+├── CLAUDE.md                               # Instrucciones para Claude Code
+├── pyproject.toml / uv.lock               # Dependencias (uv)
 │
-├── extractores/                        # Scripts de descarga de datos crudos
-│   ├── config.py                       # Configuración compartida
-│   ├── run_all.py                      # Ejecutor maestro
-│   ├── 01_extraer_clima_ideam.py
-│   ├── 02_extraer_chirps.py
-│   ├── 03_extraer_suelo_igac.py
-│   ├── 04_extraer_soilgrids.py
-│   ├── 05_extraer_sentinel2.py
-│   ├── 06_extraer_sentinel1.py
-│   ├── 07_extraer_dem_topografia.py
-│   ├── 08_extraer_target.py
-│   └── raw/                            # Datos crudos descargados (no en git)
-│       ├── clima/
-│       │   ├── ideam_temperatura/
-│       │   ├── ideam_precipitacion/
-│       │   ├── ideam_humedad/
-│       │   ├── ideam_normales/
-│       │   └── chirps/
-│       ├── suelo/
-│       │   ├── igac_quimica/
-│       │   ├── igac_vocacion/
-│       │   └── soilgrids/
-│       ├── satelite/
-│       │   ├── sentinel2/
-│       │   └── sentinel1/
-│       ├── topo/
-│       │   └── dem_glo30/
-│       └── target/
-│           ├── eva/
-│           ├── monitoreo/
-│           └── sipra/
+├── extractores/                            # Descarga de datos crudos (9 scripts idempotentes)
+│   ├── config.py                           # Configuración global (RESOLUCION_M, BBOX, SEMESTRES...)
+│   ├── run_all.py                          # Ejecutor maestro
+│   ├── 01_extraer_clima_ideam.py           # Temperatura, precipitación, humedad (API SODA)
+│   ├── 02_extraer_chirps.py                # Precipitación satelital CHIRPS v2
+│   ├── 03_extraer_suelo_igac.py            # Propiedades químicas IGAC
+│   ├── 04_extraer_soilgrids.py             # SoilGrids 2.0 (COG)
+│   ├── 05_extraer_sentinel2.py             # Índices espectrales S2 (CDSE OAuth)
+│   ├── 06_extraer_sentinel1.py             # Backscatter SAR S1 (CDSE OAuth)
+│   ├── 07_extraer_dem_topografia.py        # DEM GLO-30 + derivados
+│   ├── 08_extraer_target.py                # EVA, Monitoreo UPRA, SIPRA
+│   ├── 09_extraer_municipios_dane.py       # División político-administrativa
+│   └── raw/                                # Datos crudos (no en git)
 │
-├── procesamiento/                      # Armonización y feature engineering
-│   ├── 01_armonizar_espacial.py        # ✅ Reproyección al grid 50 m EPSG:3116
-│   ├── 02_armonizar_temporal.py        # ✅ Agregación mensual → estadísticos semestrales
-│   ├── 03_feature_engineering.py       # ✅ Features derivadas (piso térmico, fertilidad, ETP…)
-│   └── 04_construir_vista_minable.py   # ✅ Tabla rectangular para ML (Parquet)
+├── procesamiento/                          # Pipeline de armonización (ejecutar en orden)
+│   ├── 01_armonizar_espacial.py            # Reproyección EPSG:3116, Kriging IDEAM, 50m
+│   ├── 02_armonizar_temporal.py            # Mensual → estadísticos semestrales
+│   ├── 03_feature_engineering.py           # piso_termico, indice_fertilidad, aridez, NDVI max
+│   └── 04_construir_vista_minable.py       # Parquet final con etiquetado L1/L2/L3
 │
-├── entrenamiento/                      # Training pipeline
-│   ├── 01_eda_exploratorio.py
-│   ├── 02_preprocesamiento_ml.py
-│   ├── 03_entrenar_modelos_base.py
-│   ├── 04_entrenar_especialistas.py
-│   ├── 05_entrenar_stacking.py
-│   └── 06_evaluar_modelos.py
+├── modelado/                               # Cuadernos CRISP-DM y documentación
+│   ├── CRISP_DM_AgroPlus_L1_UPRA.ipynb    # L1: clasificador Papa XGBoost
+│   ├── CRISP_DM_AgroPlus_LLP_Co_V1.ipynb  # L2: LLP-Co 18 cultivos (versión activa)
+│   ├── DOCUMENTACION_L1_UPRA_AgroPlus.md  # Documentación técnica modelo L1
+│   ├── DOCUMENTACION_LLP_Co_AgroPlus.md   # Documentación técnica modelo L2
+│   ├── checkpoints/
+│   │   ├── l1_upra_papa_v3.joblib          # Modelo L1 entrenado (1.38 MB)
+│   │   ├── l2_llp_co.pt                    # Modelo L2 entrenado (PyTorch)
+│   │   ├── l2_choice.json                  # Configuración de selección L2
+│   │   └── l2_xgb_soft.json               # Modelo L3 suave (en desarrollo)
+│   └── optuna_llp_co.db                    # Trials Optuna L2 (no en git)
 │
-├── api/                                # API REST de inferencia
-│   ├── main.py                         # FastAPI app
-│   ├── inference.py                    # Pipeline de predicción
-│   ├── geospatial.py                   # Extracción de features del polígono
-│   └── explainability.py               # SHAP/LIME
+├── vista_minable/                          # Salida del pipeline (no en git)
+│   ├── vista_minable_full.parquet          # 4.16M filas · 77 columnas
+│   └── catalogo_cultivos.json              # Mapping cultivo → índice
 │
-├── frontend/                           # Interfaz web
-│   └── (React/Vue app con mapa)
-│
-├── models/                             # Modelos entrenados (.pkl, .pt) — no en git
-│
-├── processed/                          # Capas armonizadas a 50 m EPSG:3116 — no en git
-│   ├── clima/
-│   │   ├── ideam/                      # {variable}_{YYYY_MM}_kriging.tif (mensuales)
-│   │   └── chirps/                     # chirps_{YYYY_MM}.tif (mensuales)
-│   ├── suelo/
-│   │   ├── soilgrids/
-│   │   └── igac/
-│   ├── satelite/
-│   │   ├── sentinel2/                  # s2_indices_{YYYY_MM}.tif (mensuales, 50 m)
-│   │   └── sentinel1/                  # s1_backscatter_{YYYY_MM}.tif (mensuales, 50 m)
-│   ├── topo/
-│   ├── temporal/                       # Estadísticos semestrales (02_armonizar_temporal)
-│   │   ├── clima/ideam/               # {variable}_{agg}_{YYYY[AB]}.tif
-│   │   ├── clima/chirps/             # chirps_acum_{YYYY[AB]}.tif
-│   │   ├── satelite/sentinel2/       # s2_{indice}_{agg}_{YYYY[AB]}.tif
-│   │   └── satelite/sentinel1/       # s1_{banda}_media_{YYYY[AB]}.tif
-│   └── engineered/                     # Features derivadas (03_feature_engineering)
-│       ├── piso_termico.tif
-│       ├── amplitud_termica_{YYYY[AB]}.tif
-│       ├── indice_fertilidad.tif
-│       ├── anomalia_precip_{YYYY[AB]}.tif
-│       ├── ndvi_max_{YYYY[AB]}.tif
-│       ├── ndvi_integral_{YYYY[AB]}.tif
-│       └── indice_aridez_{YYYY[AB]}.tif
-│
-├── vista_minable/                      # Tabla final de entrenamiento — no en git
-│
-├── modelado/                           # Cuadernos de modelado CRISP-DM
-│   ├── CRISP_DM_AgroPlus_L1_UPRA.ipynb     # Modelo L1: clasificador supervisado Papa (UPRA)
-│   ├── CRISP_DM_AgroPlus_LLP_Co_V1.ipynb   # Modelo L2: LLP-Co 18 cultivos (activo)
-│   ├── checkpoints/                    # Modelos guardados (.joblib, .pt)
-│   └── optuna_llp_co.db                # Base de datos de ensayos Optuna (no en git)
-│
-├── images/                             # Visualizaciones y mapas de resultados
+├── images/                                 # Visualizaciones de resultados
 │   ├── Comparacion_espacial_LLP-Co-Upra.png
 │   └── LLP-co_otros_cultivos.png
 │
-├── docs/                               # Documentación técnica
-│   ├── analisis_diseno_variables.md    # Decisiones de diseño y justificación científica
-│   ├── analisis_estadistico_eda.ipynb  # EDA con ydata_profiling (CRISP-DM)
-│   ├── armonizacion_espacial.md        # Detalle de reproyección y kriging
-│   ├── procesamiento_conceptual.md     # Diseño conceptual del pipeline
-│   ├── vista_minable_que_sembrar.html
-│   └── *.html                          # Documentación adicional (no en git)
+├── docs/                                   # Documentación adicional
+│   └── estrategia_modelado_agroplus.md
 │
-└── tests/                              # Tests unitarios y de integración
+├── processed/                              # Capas armonizadas a 50m EPSG:3116 (no en git)
+│   ├── clima/ideam/                        # {variable}_{YYYY_MM}_kriging.tif
+│   ├── clima/chirps/                       # chirps_{YYYY_MM}.tif
+│   ├── suelo/soilgrids/ igac/
+│   ├── satelite/sentinel2/ sentinel1/
+│   ├── topo/
+│   ├── temporal/                           # Estadísticos semestrales
+│   └── engineered/                         # Features derivadas
+│
+└── models/                                 # Modelos adicionales (no en git)
 ```
 
 ---
 
-## 10. Instalación y Configuración
+## 10. Instalación y Uso
 
-### Requisitos del Sistema
+### Requisitos
 
-- Python 3.12+ (<3.14)
-- 16 GB RAM mínimo (32 GB recomendado para entrenamiento)
-- 50 GB de disco para datos crudos
-- GPU opcional (acelera TabNet y LSTM, no es requerido)
+- Python 3.12+ (< 3.14), gestionado con `uv`
+- 16 GB RAM mínimo (32 GB recomendado)
+- ~50 GB disco para datos crudos y procesados
+- GPU opcional (acelera entrenamiento LLP-Co)
+- Credenciales CDSE (Copernicus) en `.env` para Sentinel-1/2 y DEM
 
 ### Instalación
 
 ```bash
-git clone https://github.com/rquiroga83/agromodel.git
-cd agromodel
+git clone <repo>
+cd agroplus
 
 # Instalar uv si no lo tienes
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-# Sincronizar dependencias (las instala automáticamente)
+# Sincronizar dependencias
 uv sync
 ```
 
-### Dependencias Principales
-
-Definidas en `pyproject.toml`. Las principales:
-
-```
-# Geoespacial
-rasterio>=1.5, geopandas>=1.1, pyproj>=3.7, sentinelhub>=3.11, pysheds>=0.5, pykrige>=1.7
-
-# Ciencia de datos
-numpy>=1.26, pandas>=2.2,<3, scipy>=1.13,<1.17, matplotlib>=3.9, seaborn>=0.13
-
-# EDA
-ydata-profiling
-
-# ML / DL (por implementar)
-scikit-learn, xgboost, lightgbm, pytorch-tabnet, torch, optuna
-```
-
-### Configuración de Credenciales
-
-- **CDSE (Copernicus):** Credenciales OAuth en archivo `.env` (no en repositorio). Requerido por Sentinel-1, Sentinel-2 y DEM.
-- **Google Earth Engine (opcional):** Ejecutar `earthengine authenticate`
-- **datos.gov.co:** Acceso público, no requiere autenticación
-
----
-
-## 11. Uso
-
-### Descarga de Datos
+### Pipeline Completo
 
 ```bash
-# Ejecutar todos los extractores
+# 1. Extracción de datos (idempotente, omite archivos existentes)
 uv run extractores/run_all.py
 
-# O ejecutar uno específico con pasos independientes
-uv run extractores/run_all.py 01:temp       # Temperatura IDEAM
-uv run extractores/run_all.py 01:precip     # Precipitación (por mes)
-uv run extractores/run_all.py 03:quimica    # IGAC propiedades químicas
-uv run extractores/run_all.py 08:eva        # EVA agropecuaria
-```
-
-### Armonización Espacial
-
-```bash
-# Armonizar todo (DEM → IDEAM → CHIRPS → SoilGrids → IGAC → Sentinel-2/1)
+# 2. Armonización espacial (reproyección, kriging)
 uv run procesamiento/01_armonizar_espacial.py
 
-# Pasos individuales
-uv run procesamiento/01_armonizar_espacial.py --step dem        # Primero siempre
-uv run procesamiento/01_armonizar_espacial.py --step ideam      # Kriging mensual (todas las variables)
-uv run procesamiento/01_armonizar_espacial.py --step ideam --variable temperatura  # Solo una variable
-uv run procesamiento/01_armonizar_espacial.py --step soilgrids
-uv run procesamiento/01_armonizar_espacial.py --step igac
-uv run procesamiento/01_armonizar_espacial.py --step sentinel2
-uv run procesamiento/01_armonizar_espacial.py --step sentinel1
-uv run procesamiento/01_armonizar_espacial.py --step validar    # Verificar consistencia
-```
-
-### Agregación Temporal
-
-```bash
-# Agregar rásteres mensuales → estadísticos semestrales
+# 3. Agregación temporal (mensual → semestral)
 uv run procesamiento/02_armonizar_temporal.py
 
-# Pasos individuales
-uv run procesamiento/02_armonizar_temporal.py --step ideam      # Clima IDEAM
-uv run procesamiento/02_armonizar_temporal.py --step chirps     # Precipitación CHIRPS
-uv run procesamiento/02_armonizar_temporal.py --step sentinel2  # Índices espectrales
-uv run procesamiento/02_armonizar_temporal.py --step sentinel1  # Backscatter SAR
-```
-
-### Feature Engineering
-
-```bash
-# Generar todas las features derivadas
+# 4. Feature engineering
 uv run procesamiento/03_feature_engineering.py
 
-# Pasos individuales
-uv run procesamiento/03_feature_engineering.py --step piso_termico       # Clasificación altitudinal
-uv run procesamiento/03_feature_engineering.py --step amplitud_termica   # Tmax − Tmin semestral
-uv run procesamiento/03_feature_engineering.py --step indice_fertilidad  # Índice compuesto de suelo
-uv run procesamiento/03_feature_engineering.py --step anomalia_precip    # Anomalía de precipitación
-uv run procesamiento/03_feature_engineering.py --step ndvi_features      # NDVI max + integral
-uv run procesamiento/03_feature_engineering.py --step indice_aridez      # Hargreaves ETP / precipitación
+# 5. Construcción de la vista minable
+uv run procesamiento/04_construir_vista_minable.py
+
+# 6. Entrenamiento (cuadernos Jupyter)
+# L1: modelado/CRISP_DM_AgroPlus_L1_UPRA.ipynb
+# L2: modelado/CRISP_DM_AgroPlus_LLP_Co_V1.ipynb
 ```
 
-### Entrenamiento
+### Pasos individuales del pipeline
 
 ```bash
-cd entrenamiento
-python 01_eda_exploratorio.py          # Análisis exploratorio
-python 02_preprocesamiento_ml.py       # Limpieza, encoding, split
-python 03_entrenar_modelos_base.py     # RF, XGBoost, LightGBM
-python 04_entrenar_especialistas.py    # TabNet, LSTM
-python 05_entrenar_stacking.py         # Meta-learner
-python 06_evaluar_modelos.py           # Métricas, confusion matrix, SHAP
-```
+# Armonización — paso específico
+uv run procesamiento/01_armonizar_espacial.py --step dem
+uv run procesamiento/01_armonizar_espacial.py --step ideam --variable temperatura
+uv run procesamiento/01_armonizar_espacial.py --step sentinel2
 
-### Despliegue de API
-
-```bash
-cd api
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-### Consulta de Ejemplo
-
-```bash
-curl -X POST http://localhost:8000/recomendar \
-  -H "Content-Type: application/json" \
-  -d '{"poligono": {"type":"Polygon","coordinates":[[[-74.1,4.6],[-74.1,4.61],[-74.09,4.61],[-74.09,4.6],[-74.1,4.6]]]}}'
+# Vista minable — paso específico
+uv run procesamiento/04_construir_vista_minable.py --step preparar
 ```
 
 ---
 
-## 12. Estado del Arte
+## 11. Roadmap
 
-El diseño del sistema se fundamenta en el análisis de 15+ artículos científicos recientes (2023-2025) en recomendación de cultivos y predicción de rendimiento. Los hallazgos principales que respaldan las decisiones de diseño:
+### Completado
 
-- **Random Forest** es el modelo más desplegado en producción: Emmanuel N. et al. (2024), Patel et al. (2025)
-- **XGBoost** alcanza la mayor accuracy puntual (98.25-99.3%): Emmanuel N. et al. (2024), Dey et al. (2024)
-- **Stacking Ensemble** mejora sobre modelos individuales: Sharafat et al. (2025), Hasan et al. (2023)
-- **TabNet** supera a otros modelos DL en datos tabulares agrícolas: Sharafat et al. (2025)
-- **LSTM** captura patrones fenológicos en series Sentinel-2: Iqbal et al. (2023)
-- **SHAP/LIME** son esenciales para adopción por agricultores: Kara et al. (2024), Cartolano et al. (2024)
-- **Datos multifuente geoespaciales** superan datasets tabulares simples: Bolívar-Santamaría & Reu (2021)
+- [x] Pipeline de extracción de datos (9 extractores, idempotentes)
+- [x] Armonización espacial a 50 m EPSG:3116 con Kriging IDEAM
+- [x] Agregación temporal mensual → semestral
+- [x] Feature engineering (piso térmico, fertilidad, aridez, NDVI fenológico)
+- [x] Vista minable — 4.16M filas, etiquetado jerárquico L1/L2/L3 (77 columnas)
+- [x] **Modelo L1 — XGBoost Papa:** PR-AUC=0.437, ROC-AUC=0.777, diagnóstico y corrección de 4 fuentes de leakage
+- [x] **Modelo L2 — LLP-Co 18 cultivos:** Top-3=60%, KL median=0.56, Optuna 500 trials
+- [x] Split geográfico estratificado con rescate de clases prioritarias (Papa, Palma, Plátano, Banano, Tomate de Árbol)
+- [x] Validación externa Papa contra polígonos UPRA Monitoreo (ground truth independiente)
+- [x] Mapas espaciales de probabilidad predicha por cultivo sobre Cundinamarca
+- [x] Caracterización de features por cultivo (tabla z-score de 19 variables)
 
----
+### En Progreso / Pendiente
 
-## 13. Métricas de Evaluación
-
-### Métricas LLP-Co (señal débil, sin etiquetas por píxel)
-
-| Métrica | Descripción |
-|---------|-------------|
-| **KL divergencia** | Distancia entre proporción predicha y proporción EVA por municipio (función de pérdida) |
-| **Recall@K por clase** | Tasa en que el cultivo verdadero está entre los K con mayor probabilidad predicha |
-| **Matriz de confusión semántica** | Diagonal = Recall@K; fuera de diagonal = qué predice el modelo cuando falla |
-| **Validación externa Papa** | Recall@K calculado exclusivamente sobre polígonos UPRA Monitoreo (ground truth confianza=1.0) |
-
-### Objetivos Modelo Ensemble (planeado)
-
-| Métrica | Objetivo | Justificación |
-|---------|----------|---------------|
-| Accuracy | > 95% | Benchmark del estado del arte (RF: 96.7%, XGBoost: 98.25%) |
-| F1-score macro | > 0.90 | Maneja desbalance de clases (cultivos minoritarios) |
-| AUC-ROC | > 0.95 | Separabilidad entre clases |
-| Inferencia | < 2s | Tiempo de respuesta aceptable para uso interactivo |
-| Top-3 accuracy | > 98% | El cultivo correcto debe estar en las 3 primeras recomendaciones |
-
----
-
-## 14. Roadmap
-
-- [x] Definición de arquitectura de datos y vista minable
-- [x] Inventario de variables y fuentes de datos
-- [x] Diseño de modelos de IA justificado por estado del arte
-- [x] Scripts de extracción de datos (8 extractores)
-- [x] Estrategia de preparación de datos y construcción de vista minable
-- [x] Armonización espacial a 50 m (`procesamiento/01_armonizar_espacial.py`)
-- [x] Agregación temporal mensual → semestral (`procesamiento/02_armonizar_temporal.py`)
-- [x] Feature engineering derivado (`procesamiento/03_feature_engineering.py`)
-- [x] Construcción de la vista minable — etiquetado jerárquico 3 niveles, 18 clases (`procesamiento/04_construir_vista_minable.py`)
-- [x] Análisis exploratorio de datos (EDA con ydata_profiling — `docs/analisis_estadistico_eda.ipynb`)
-- [x] Documento técnico de diseño y variables (`docs/analisis_diseno_variables.md`)
-- [x] **Modelo LLP-Co** — arquitectura MLP + Sinkhorn prototipos, 18 cultivos, optimización Optuna (`modelado/CRISP_DM_AgroPlus_LLP_Co_V1.ipynb`)
-- [x] **Split geográfico estratificado** — garantía de clases prioritarias (Papa, Palma, Plátano, Banano, Tomate Árbol) en train
-- [x] **Validación externa Papa** — Recall@K contra monitoreo UPRA como ground truth independiente
-- [x] **Mapas espaciales de predicción** — Papa vs UPRA + 5 cultivos principales sobre Cundinamarca
-- [x] **Caracterización de features por cultivo** — tabla y heatmap z-score de 19 variables agroecológicas
-- [ ] Ajuste fino y evaluación cuantitativa de LLP-Co (métricas finales tras optimización Optuna)
-- [ ] Modelo L1 UPRA para Papa (clasificador supervisado sobre píxeles de monitoreo)
-- [ ] Entrenamiento de modelos ensemble (RF, XGBoost, LightGBM, TabNet, LSTM)
-- [ ] Desarrollo de API REST (FastAPI)
-- [ ] Desarrollo de interfaz web con mapa
+- [ ] Modelo L3 — XGBoost suave No_apto (SIPRA+NDVI, artefacto parcial `l2_xgb_soft.json`)
+- [ ] Stacking final L1+L2+L3 → ranking por píxel con calibración de threshold
+- [ ] Mejorar recall Palma (actualmente 0%) — investigar prior EVA y firma espectral
+- [ ] Recalcular `ndvi_sigma/mean_temporal` con datos solo del período de train (eliminar leakage en L1)
+- [ ] API REST (FastAPI) para inferencia por polígono GeoJSON
+- [ ] Interfaz web con mapa (agricultor dibuja parcela)
 - [ ] Validación con agricultores de Cundinamarca
 - [ ] Despliegue en producción
 
 ---
 
-## 15. Licencia y Créditos
+## 12. Referencias
+
+- **La Rosa, L.E.C., Oliveira, D.A.B., & Ghamisi, P.** (2022). *Learning crop type mapping from regional label proportions in large-scale SAR and optical imagery*. arXiv:2208.11607.
+- **Caron, M. et al.** (2020). *Unsupervised Learning of Visual Features by Contrasting Cluster Assignments* (SwAV). NeurIPS 2020.
+- **Cuturi, M.** (2013). *Sinkhorn Distances: Lightspeed Computation of Optimal Transport Distances*. NeurIPS 2013.
+- **EVA** — Evaluación Agropecuaria Municipal. MADR / UPRA. Cundinamarca 2018–2024.
+- **SoilGrids 250m** — ISRIC World Soil Information. CC-BY 4.0.
+- **CHIRPS v2.0** — Climate Hazards Group InfraRed Precipitation with Station data.
+- **Copernicus DEM GLO-30, Sentinel-1/2** — ESA / CDSE. Licencia abierta.
+
+---
+
+## 13. Licencia y Créditos
 
 ### Datos Abiertos Utilizados
 
 - **IDEAM** — Datos hidrometeorológicos bajo licencia abierta (Ley 1712 de 2014)
 - **IGAC** — Cartografía oficial de Colombia
-- **UPRA/SIPRA** — Evaluaciones Agropecuarias y Zonificación de Aptitud
-- **Copernicus/ESA** — Sentinel-1, Sentinel-2, DEM GLO-30 (licencia abierta)
+- **UPRA / SIPRA** — Evaluaciones Agropecuarias y Zonificación de Aptitud
+- **DANE** — División político-administrativa Colombia
+- **Copernicus / ESA** — Sentinel-1, Sentinel-2, DEM GLO-30 (licencia abierta)
 - **ISRIC SoilGrids** — CC-BY 4.0
 
-### Proyecto Académico
+### Proyecto
 
 Módulo ¿Qué Sembrar? — Plataforma de Planificación Agrícola para Cundinamarca, Colombia, 2026.
