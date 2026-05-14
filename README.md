@@ -202,15 +202,14 @@ Top-3 por importancia (XGBoost gain): `humedad_media` (0.237), `sg_phh2o` (0.100
 
 ### Datos de entrenamiento
 
-| Partición | Municipios | Píxeles activos |
-|-----------|-----------|-----------------|
-| **Train** | 81 | 1,533,342 |
-| **Validación** | 15 | 534,427 |
-| **Test** | 15 | 257,625 |
+| Partición | Municipios | Píxeles | Clases representadas (pseudo-GT) |
+|-----------|-----------|---------|----------------------------------|
+| **Train** | 81 | 1,876,361 | 15 |
+| **Validación** | 16 | 420,138 | 9 |
+| **Test** | 16 | 515,961 | 9 |
 
-- **Píxeles totales L2:** 2,990,171 → 2,325,394 activos (77.8%) tras filtro de vegetación activa (NDVI>0.15, excluye bosque denso y pasturas estables)
-- **Bags:** municipio × semestre; supervisión = proporciones EVA `w ∈ Δ_K`
-- **Split:** estratificado geográfico con garantía de clases prioritarias en train (Papa, Palma, Plátano, Banano, Tomate de Árbol)
+- **Bags:** municipio como unidad de supervisión; proporciones EVA `w ∈ Δ_K` como única señal de entrenamiento
+- **Split:** estratificado geográfico con garantía de clases prioritarias en train (Papa, Palma, Plátano, Banano, Tomate de Árbol); rescate automático si clase ausente
 
 ### Arquitectura
 
@@ -235,57 +234,77 @@ Entrada: x ∈ ℝ^40  (features escaladas con StandardScaler)
 **Clases (18):**
 Caña Panelera, Café, Maíz, Plátano, Mango, Fríjol, Cacao, Arveja, Palma, Banano, Cítricos, Mora, Zanahoria, Tomate de Árbol, Yuca, Habichuela, Hortalizas, **Papa**
 
-### Hiperparámetros (optimizados con Optuna TPE, 500 trials)
+### Hiperparámetros (optimizados con Optuna TPE, estudio `llp_co_v2`, 100 trials × 80 épocas)
 
-| Parámetro | Valor |
-|-----------|-------|
-| `TAU (τ)` — temperatura softmax | 0.04965 |
-| `EPS_SK (ε)` — regularización Sinkhorn | 0.06020 |
-| `SIGMA_AUG` — ruido de augmentación | 0.08677 |
+| Parámetro | Valor óptimo |
+|-----------|-------------|
+| `TAU (τ)` — temperatura softmax | 0.12791 |
+| `EPS_SK (ε)` — regularización Sinkhorn | 0.09302 |
+| `SIGMA_AUG` — ruido de augmentación | 0.03263 |
+| `LR_INIT` — tasa de aprendizaje inicial | 0.092124 |
+| `KOLEO_WEIGHT` — diversidad de prototipos | 0.20123 |
+| `P_DROP_AUG` — dropout de augmentación | 0.2039 |
+| `WEIGHT_DECAY` | 4.38e-04 |
 | Embedding dim | 512 |
-| Épocas totales | 500 |
-| Optimizador | AdamW (LR cosine warmup) |
+| Épocas totales | 500 (14.2 min de entrenamiento) |
+| Optimizador | AdamW con cosine warmup (5 épocas) |
 
 ### Resultados
 
-**Métricas de bag (KL divergencia validación):**
+**Métricas de bag (KL divergencia, validación):**
 
 | Estadístico | KL |
 |-------------|-----|
-| Mediana | 0.5601 |
-| Media | 0.8185 |
-| P25 | 0.2913 |
-| P75 | 0.6404 |
-| Máximo | 5.71 (municipio 25530) |
+| Mediana | 0.3610 |
+| Media | 0.5002 |
+| P25 | 0.2613 |
+| P75 | 0.5263 |
+| Máximo | 1.9479 (municipio 25279) |
+| **KL final (época 500)** | **~0.50** |
 
-**Métricas de píxel (pseudo-GT = cultivo dominante del municipio):**
+**Métricas de píxel (pseudo-GT = cultivo dominante del municipio por EVA):**
 
 | Métrica | Validación | Test |
 |---------|-----------|------|
-| Top-1 | 27.45% | 31.38% |
-| **Top-3** | **60.25%** | **68.87%** |
-| Top-5 | 77.55% | 82.78% |
-| Top-8 | 86.56% | 88.95% |
+| Top-1 (Acc_P) | 53.97% | 87.70% |
+| Top-1 (Acc_H, Hungarian) | 56.01% | 84.53% |
+| **Top-3** | **82.25%** | **95.94%** |
+| Top-5 | 89.57% | 98.36% |
+| Top-8 | 97.43% | 99.44% |
 
-> Top-3 es la métrica operativa: el cultivo correcto está entre los 3 primeros para el 60–69% de los píxeles.
+> Top-3 es la métrica operativa: el cultivo correcto (del municipio) está entre los 3 más probables en el 82% de los píxeles de validación.
+> La brecha valid/test se debe a que test tiene municipios donde la clase dominante coincide más con las firmas aprendidas.
 
-**Recall@K por clase (validación):**
+**Recall@K por clase (validación — solo clases presentes por pseudo-GT):**
 
-| Cultivo | n_píxeles | R@1 | R@3 | R@5 |
-|---------|-----------|-----|-----|-----|
-| Arveja | 153,790 | 41.2% | 77.4% | 94.5% |
-| Hortalizas | 146,126 | 35.6% | 77.6% | 93.2% |
-| Café | 9,475 | 31.1% | 54.7% | 67.6% |
-| Mango | 1,641 | 28.2% | 54.1% | 71.7% |
-| Fríjol | 18,672 | 22.9% | 37.4% | 51.8% |
-| Maíz | 69,148 | 19.3% | 56.6% | 76.6% |
-| Caña Panelera | 1,976 | 16.9% | 56.0% | 71.4% |
-| Zanahoria | 80,967 | 12.4% | 44.3% | 75.2% |
-| Cítricos | 763 | 9.4% | 50.5% | 64.1% |
-| Palma | 51,869 | 0.0% | 0.0% | 0.0% |
-| **Macro avg** | **534,427** | **12.8%** | **29.9%** | **39.2%** |
+| Cultivo | n_píxeles | R@1 | R@2 | R@3 | R@5 |
+|---------|-----------|-----|-----|-----|-----|
+| **Papa** | **325,033** | **66.4%** | **83.4%** | **97.6%** | **99.1%** |
+| Café | 9,846 | 48.7% | 68.3% | 82.1% | 95.8% |
+| Mango | 1,677 | 46.5% | 49.4% | 54.6% | 71.1% |
+| Caña Panelera | 3,987 | 38.9% | 57.6% | 66.4% | 78.0% |
+| Fríjol | 32,679 | 8.3% | 14.4% | 21.9% | 57.1% |
+| Tomate de Árbol | 1,926 | 6.4% | 26.1% | 50.3% | 67.8% |
+| Cítricos | 105 | 3.8% | 76.2% | 86.7% | 86.7% |
+| Hortalizas | 24,837 | 3.2% | 8.4% | 15.6% | 39.2% |
+| Maíz | 20,048 | 0.5% | 10.0% | 23.0% | 53.0% |
+| **Macro avg** | **420,138** | **12.4%** | **21.9%** | **27.7%** | **36.0%** |
 
-> Palma: recall 0% — escasa en Cundinamarca; el prior EVA asigna proporciones muy bajas y el modelo no converge a su firma.
+> Las 9 clases restantes (Arveja, Palma, Plátano, Banano, Mora, Zanahoria, Yuca, Habichuela, Cacao) no son cultivo dominante en ningún municipio de validación — no aparecen en pseudo-GT.
+
+**Validación externa contra Monitoreo UPRA (Papa, ground truth de campo):**
+
+| Métrica | Valor | Píxeles |
+|---------|-------|---------|
+| Recall@1 | **73.7%** | 313,938 / 425,767 Papa UPRA |
+| Recall@2 | 87.3% | 371,596 / 425,767 |
+| Recall@3 | **97.3%** | 414,146 / 425,767 |
+| Recall@5 | 98.8% | 420,538 / 425,767 |
+
+Top confusores (píxeles Papa UPRA predichos como otro cultivo en Top-1):
+- Hortalizas: 77,415 (18.2%) — cultivos de clima frío similares
+- Arveja: 8,692 (2.0%)
+- Maíz: 6,616 (1.6%)
 
 ---
 
