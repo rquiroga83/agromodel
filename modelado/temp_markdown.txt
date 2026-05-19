@@ -1,0 +1,4 @@
+  File "<string>", line 10
+    out.append(f'=== CELDA [{i}] ({c[chr(99)+chr(101)+chr(108)+chr(108)+chr(95)+chr(116)+chr(121)+chr(112)+chr(101)}]) ===')
+                                                                                                                   ^
+SyntaxError: closing parenthesis '}' does not match opening parenthesis '['
