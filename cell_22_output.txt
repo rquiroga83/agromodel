@@ -1,7 +1,0 @@
-Train: 1,533,342 pixeles (81 municipios)
-Valid: 534,427 pixeles (15 municipios)
-Test:  257,625 pixeles (15 municipios)
-
-Train: 16 clases representadas -> Cana_Panelera, Cafe, Maiz, Platano, Mango, Frijol, Cacao, Arveja, Banano, Citricos, Mora, Zanahoria, Tomate_Arbol, Yuca, Habichuela, Hortalizas
-Valid: 10 clases representadas -> Cana_Panelera, Cafe, Maiz, Mango, Frijol, Arveja, Palma, Citricos, Zanahoria, Hortalizas
-Test: 10 clases representadas -> Cana_Panelera, Cafe, Maiz, Platano, Mango, Frijol, Cacao, Arveja, Zanahoria, Hortalizas

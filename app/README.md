@@ -42,6 +42,7 @@ flutter run -d windows
 
 # Android (emulador o dispositivo)
 flutter run -d <device-id>
+flutter run -d emulator-5554
 
 # Listar dispositivos disponibles
 flutter devices
