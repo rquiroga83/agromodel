@@ -74,6 +74,30 @@ class _ResultsScreenState extends State<ResultsScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           CropRanking(ranking: r.ranking),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.amber[50],
+              border: Border.all(color: Colors.amber.shade300),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline, size: 18, color: Colors.amber[800]),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Estos resultados son una recomendación orientativa basada en '
+                    'modelos de predicción. No reemplazan el criterio técnico '
+                    'agronómico ni el análisis de suelos en campo.',
+                    style: TextStyle(fontSize: 12, height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 20),
           const Text('Mapa de probabilidad',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
