@@ -33,11 +33,24 @@ dependencies = [
     "sentinelhub>=3.11.5",
     "shapely>=2.1.2",
     "tabulate>=0.9",
-    "torch>=2.12.0",
+    "torch>=2.6.0",
     "uvicorn>=0.46.0",
     "xgboost>=2.1",
     "ydata-profiling",
 ]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu124" },
+]
+torchvision = [
+  { index = "pytorch-cu124" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
 
 [dependency-groups]
 dev = [

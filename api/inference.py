@@ -1,4 +1,12 @@
-"""Carga de modelos L1/L2 y pipeline de inferencia."""
+"""Pipeline de inferencia AgroPlus.
+
+Arquitectura activa:
+  LLP-Co (L2) — 18 cultivos, checkpoint l2_llp_co.pt
+  No_apto (L3) — aptitud binaria, checkpoint l3_noapto.joblib
+
+El modelo L1 (clasificador binario Papa/UPRA) esta OBSOLETO.
+predecir_combinado es alias de predecir_l2 (solo LLP-Co).
+"""
 from typing import Dict, List, Optional, Tuple
 import logging
 
@@ -159,24 +167,13 @@ class ModelStore:
     def predecir_combinado(
         self, df_pixeles: pd.DataFrame
     ) -> Tuple[np.ndarray, List[str]]:
-        """
-        Combina L1 (Papa) con L2 (18 cultivos) sustituyendo prob_Papa por L1.
-        Retorna (matriz_probabilidades NxK, lista_de_clases).
+        """Inferencia LLP-Co: retorna (NxK probabilidades, lista de clases).
+
+        Alias de predecir_l2. El modelo L1 esta obsoleto y no se usa.
+        Para aptitud de suelo usar el modelo L3 No_apto (l3_noapto.joblib).
         """
         X_l2 = df_pixeles[self.l2_features].values
-        P_l2 = self.predecir_l2(X_l2)
-
-        X_l1 = df_pixeles[self.l1_features].values
-        p_papa_l1 = self.predecir_l1(X_l1)
-
-        idx_papa = self.l2_classes.index("Papa")
-        P = P_l2.copy()
-        P[:, idx_papa] = p_papa_l1
-        row_sums = P.sum(axis=1, keepdims=True)
-        row_sums = np.where(row_sums > 0, row_sums, 1.0)
-        P = P / row_sums
-
-        return P, self.l2_classes
+        return self.predecir_l2(X_l2), self.l2_classes
 
 
 def construir_ranking(P: np.ndarray, clases: List[str]) -> List[Dict]:
